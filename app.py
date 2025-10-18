@@ -19,19 +19,24 @@ def parse_sheet_name(sheet_name):
     """Extract subject, level, and section from sheet name"""
     parts = sheet_name.strip().split()
     
-    if len(parts) >= 3:
-        subject = " ".join(parts[:-2])
-        level = parts[-2]
-        section = parts[-1]
-    elif len(parts) == 2:
-        subject = parts[0]
-        level = parts[1]
-        section = ""
-    else:
-        subject = sheet_name
-        level = ""
-        section = ""
+    # Try to find level and section (numbers)
+    level = ""
+    section = ""
+    subject_parts = []
     
+    for part in parts:
+        # Check if it's a number (level or section)
+        if part.isdigit() or (part.startswith('0') and len(part) <= 2):
+            if not level:
+                level = part
+            else:
+                section = part
+        else:
+            subject_parts.append(part)
+    
+    subject = " ".join(subject_parts) if subject_parts else sheet_name
+    
+    # If no section found, try to get from Excel data
     return subject, level, section
 
 def analyze_excel_file(file, sheet_name):
@@ -40,7 +45,19 @@ def analyze_excel_file(file, sheet_name):
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         
         # Parse sheet name
-        subject, level, section = parse_sheet_name(sheet_name)
+        subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
+        
+        # Try to get level and section from Excel (row 2, columns B and C)
+        if len(df) > 1:
+            level_from_excel = str(df.iloc[1, 1]).strip() if pd.notna(df.iloc[1, 1]) else ""
+            section_from_excel = str(df.iloc[1, 2]).strip() if pd.notna(df.iloc[1, 2]) else ""
+            
+            # Use Excel data if available, otherwise use from sheet name
+            level = level_from_excel if level_from_excel and level_from_excel != 'nan' else level_from_name
+            section = section_from_excel if section_from_excel and section_from_excel != 'nan' else section_from_name
+        else:
+            level = level_from_name
+            section = section_from_name
         
         # Get assessment titles from H1 onwards
         assessment_titles = []
@@ -59,6 +76,9 @@ def analyze_excel_file(file, sheet_name):
             
             if pd.isna(student_name) or str(student_name).strip() == "":
                 continue
+            
+            # Clean student name - remove extra spaces
+            student_name_clean = " ".join(str(student_name).strip().split())
             
             # Count M (not submitted)
             m_count = 0
@@ -86,10 +106,10 @@ def analyze_excel_file(file, sheet_name):
                 solve_pct = 0.0
             
             results.append({
-                "student_name": str(student_name).strip(),
+                "student_name": student_name_clean,
                 "subject": subject,
-                "level": str(level),
-                "section": str(section),
+                "level": str(level).strip(),
+                "section": str(section).strip(),
                 "solve_pct": solve_pct,
                 "completed_count": completed_count,
                 "total_count": total_assessments,
@@ -105,36 +125,51 @@ def analyze_excel_file(file, sheet_name):
 def create_pivot_table(df):
     """Create pivot table with subjects as multiple columns"""
     # Get unique students
-    students = df[['student_name', 'level', 'section']].drop_duplicates()
-    result = students.copy()
+    students_base = df[['student_name', 'level', 'section']].drop_duplicates().reset_index(drop=True)
+    
+    # Start with base columns
+    result = students_base.copy()
     
     # For each subject, add columns
-    for subject in sorted(df['subject'].unique()):
-        subject_data = df[df['subject'] == subject]
-        
-        # Create merge key
-        subject_data['merge_key'] = subject_data['student_name'] + '_' + subject_data['level'] + '_' + subject_data['section']
-        result['merge_key'] = result['student_name'] + '_' + result['level'] + '_' + result['section']
-        
-        # Merge columns
-        for col_name, orig_col in [
-            (f"{subject} - إجمالي التقييمات", 'total_count'),
-            (f"{subject} - المنجز", 'completed_count'),
-            (f"{subject} - عناوين التقييمات المتبقية", 'pending_titles'),
-            (f"{subject} - نسبة الإنجاز %", 'solve_pct')
-        ]:
-            temp = subject_data[['merge_key', orig_col]].rename(columns={orig_col: col_name})
-            result = result.merge(temp, on='merge_key', how='left')
+    subjects = sorted(df['subject'].unique())
     
-    # Remove merge key
-    result = result.drop(columns=['merge_key'])
+    for subject in subjects:
+        subject_df = df[df['subject'] == subject].copy()
+        
+        # Create a unique key for merging
+        subject_df['key'] = (
+            subject_df['student_name'].astype(str) + '|' + 
+            subject_df['level'].astype(str) + '|' + 
+            subject_df['section'].astype(str)
+        )
+        result['key'] = (
+            result['student_name'].astype(str) + '|' + 
+            result['level'].astype(str) + '|' + 
+            result['section'].astype(str)
+        )
+        
+        # Prepare subject data with renamed columns
+        subject_cols = subject_df[['key', 'total_count', 'completed_count', 'pending_titles', 'solve_pct']].copy()
+        subject_cols.columns = [
+            'key',
+            f"{subject} - إجمالي التقييمات",
+            f"{subject} - المنجز",
+            f"{subject} - عناوين التقييمات المتبقية",
+            f"{subject} - نسبة الإنجاز %"
+        ]
+        
+        # Merge with result
+        result = result.merge(subject_cols, on='key', how='left')
     
-    # Calculate overall average
-    pct_cols = [col for col in result.columns if col.endswith('نسبة الإنجاز %')]
+    # Remove the key column
+    result = result.drop(columns=['key'])
+    
+    # Calculate overall average percentage
+    pct_cols = [col for col in result.columns if 'نسبة الإنجاز %' in col]
     if pct_cols:
         result['نسبة حل التقييمات في جميع المواد'] = result[pct_cols].mean(axis=1)
     
-    # Rename to Arabic
+    # Rename base columns to Arabic
     result = result.rename(columns={
         'student_name': 'اسم الطالب',
         'level': 'الصف',
@@ -232,6 +267,19 @@ elif run_analysis:
                 st.session_state.pivot_table = pivot
                 
                 st.success(f"✅ تم تحليل {len(df)} سجل من {len(selected_sheets)} مادة!")
+                
+                # Debug info
+                st.info(f"📊 تفاصيل التحليل: {len(pivot)} طالب فريد في الجدول النهائي")
+                
+                # Show duplicate detection
+                unique_students = df.groupby('student_name').size()
+                if unique_students.max() != len(selected_sheets):
+                    st.warning(f"⚠️ تحذير: بعض الطلاب لديهم بيانات ناقصة في بعض المواد")
+                    missing_data = unique_students[unique_students < len(selected_sheets)]
+                    if len(missing_data) > 0:
+                        st.text(f"الطلاب بالبيانات الناقصة ({len(missing_data)}):")
+                        for name, count in missing_data.head(10).items():
+                            st.text(f"  - {name}: موجود في {count} من {len(selected_sheets)} مادة")
             else:
                 st.warning("⚠️ لم يتم العثور على بيانات")
         
