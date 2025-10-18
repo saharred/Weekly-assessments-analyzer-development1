@@ -5,7 +5,7 @@ import zipfile
 import io
 from datetime import datetime
 
-# Page config
+# ========= إعداد الصفحة =========
 st.set_page_config(
     page_title="محلل التقييمات الأسبوعية",
     page_icon="📊",
@@ -13,13 +13,30 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ================== HELPER FUNCTIONS ==================
+# ========= دعم العربية في الرسوم (اختياري) =========
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    def shape_ar(text: str) -> str:
+        if text is None:
+            return ""
+        return get_display(arabic_reshaper.reshape(str(text)))
+except Exception:
+    # لو لم تتوفر المكتبات، نرجع النص كما هو
+    def shape_ar(text: str) -> str:
+        return str(text) if text is not None else ""
 
-def parse_sheet_name(sheet_name):
-    """Extract subject, level, and section from sheet name"""
+import matplotlib
+# خط يدعم العربية (DejaVu Sans غالباً مناسب)
+matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+matplotlib.rcParams['axes.unicode_minus'] = False
+
+# ================== دوال مساعدة ==================
+
+def parse_sheet_name(sheet_name: str):
+    """استخراج المادة/الصف/الشعبة من اسم الورقة"""
     parts = sheet_name.strip().split()
-    level = ""
-    section = ""
+    level, section = "", ""
     subject_parts = []
     for part in parts:
         if part.isdigit() or (part.startswith('0') and len(part) <= 2):
@@ -33,7 +50,11 @@ def parse_sheet_name(sheet_name):
     return subject, level, section
 
 def analyze_excel_file(file, sheet_name):
-    """Analyze a single Excel sheet — منطق العد كما هو: نحسب فقط M كغير منجز"""
+    """
+    تحليل ورقة واحدة — منطق العد كما هو:
+    - نعد M فقط كـ (غير منجز)،
+    - completed_count = total_assessments - m_count
+    """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
 
@@ -66,7 +87,7 @@ def analyze_excel_file(file, sheet_name):
 
             student_name_clean = " ".join(str(student_name).strip().split())
 
-            # --- منطقك الأصلي بالضبط ---
+            # --- منطقك الأصلي ---
             m_count = 0
             pending_titles = []
 
@@ -100,8 +121,8 @@ def analyze_excel_file(file, sheet_name):
         st.error(f"خطأ في تحليل الورقة {sheet_name}: {str(e)}")
         return []
 
-def create_pivot_table(df):
-    """Create pivot table - ONE ROW PER STUDENT - NO DUPLICATES"""
+def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Pivot: صف واحد لكل طالب بلا تكرار"""
     df_clean = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
 
     unique_students = df_clean[['student_name', 'level', 'section']].drop_duplicates()
@@ -126,7 +147,7 @@ def create_pivot_table(df):
 
         result = result.merge(subject_df, on=['student_name', 'level', 'section'], how='left')
 
-    # Overall %
+    # النسبة العامة والفئة
     pct_cols = [col for col in result.columns if 'نسبة الإنجاز %' in col]
     if pct_cols:
         result['نسبة حل التقييمات في جميع المواد'] = result[pct_cols].mean(axis=1)
@@ -155,22 +176,27 @@ def create_pivot_table(df):
         'section': 'الشعبة'
     })
 
+    # إزالة أي أعمدة مكررة (حل مشكلة تكرار عمود أسماء الطلاب)
+    result = result.loc[:, ~result.columns.duplicated()]
     result = result.drop_duplicates(subset=['اسم الطالب', 'الصف', 'الشعبة'], keep='first').reset_index(drop=True)
     return result
 
-def generate_student_html_report(student_row, school_name="", coordinator="", academic="", admin="", principal="", logo_base64=""):
-    """Generate individual student HTML report with customizable signatures and logo (دون تكرار)."""
+def generate_student_html_report(student_row: pd.Series, school_name="", coordinator="", academic="", admin="", principal="", logo_base64="") -> str:
+    """تقرير الطالب الفردي — الشعار يمين، نسبة الإنجاز، قائمة المواد."""
     student_name = student_row['اسم الطالب']
     level = student_row['الصف']
     section = student_row['الشعبة']
 
+    # استخراج المواد + الإحصاءات
     total_assessments = 0
     total_completed = 0
     subjects_html = ""
+    subject_list = []
 
     for col in student_row.index:
         if ' - إجمالي التقييمات' in col:
             subject = col.replace(' - إجمالي التقييمات', '')
+            subject_list.append(subject)
             total_col = f"{subject} - إجمالي التقييمات"
             completed_col = f"{subject} - المنجز"
             pending_col = f"{subject} - عناوين التقييمات المتبقية"
@@ -185,29 +211,34 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
 
                 subjects_html += f"""
                 <tr>
-                    <td style="text-align: right; padding: 12px; border: 1px solid #ddd;">{subject}</td>
-                    <td style="text-align: center; padding: 12px; border: 1px solid #ddd;">{total}</td>
-                    <td style="text-align: center; padding: 12px; border: 1px solid #ddd;">{completed}</td>
-                    <td style="text-align: right; padding: 12px; border: 1px solid #ddd;">{pending_titles}</td>
+                    <td style="text-align: right; padding: 10px; border: 1px solid #ddd;">{subject}</td>
+                    <td style="text-align: center; padding: 10px; border: 1px solid #ddd;">{total}</td>
+                    <td style="text-align: center; padding: 10px; border: 1px solid #ddd;">{completed}</td>
+                    <td style="text-align: right; padding: 10px; border: 1px solid #ddd;">{pending_titles}</td>
                 </tr>
                 """
 
-    solve_pct = (total_completed / total_assessments * 100) if total_assessments > 0 else 0
+    # نسبة الإنجاز العامة: من العمود الجاهز أو محسوبة
+    if 'نسبة حل التقييمات في جميع المواد' in student_row.index and pd.notna(student_row['نسبة حل التقييمات في جميع المواد']):
+        overall_pct = float(student_row['نسبة حل التقييمات في جميع المواد'])
+    else:
+        overall_pct = (total_completed / total_assessments * 100) if total_assessments > 0 else 0.0
+
     remaining = total_assessments - total_completed
 
-    if solve_pct == 0:
-        recommendation = "الطالب لم يستفيد من النظام - يرجى التواصل مع ولي الأمر فوراً 🚫"
+    if overall_pct == 0:
+        recommendation = "الطالب لم يستفد من النظام - يرجى التواصل مع ولي الأمر فورًا 🚫"
         category_color = "#9E9E9E"
-    elif solve_pct >= 90:
+    elif overall_pct >= 90:
         recommendation = "أداء ممتاز! استمر في التميز 🌟"
         category_color = "#4CAF50"
-    elif solve_pct >= 80:
-        recommendation = "أداء جيد جداً، حافظ على مستواك 👍"
+    elif overall_pct >= 80:
+        recommendation = "أداء جيد جدًا، حافظ على مستواك 👍"
         category_color = "#8BC34A"
-    elif solve_pct >= 70:
+    elif overall_pct >= 70:
         recommendation = "أداء جيد، يمكنك التحسن أكثر ✓"
         category_color = "#FFC107"
-    elif solve_pct >= 60:
+    elif overall_pct >= 60:
         recommendation = "أداء مقبول، تحتاج لمزيد من الجهد ⚠️"
         category_color = "#FF9800"
     else:
@@ -215,7 +246,28 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
         category_color = "#F44336"
 
     logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="max-height: 80px; margin-bottom: 10px;" />' if logo_base64 else ""
-    school_section = f"<h2 style='text-align: center; color: #1976D2; margin: 5px 0;'>{school_name}</h2>" if school_name else ""
+    school_section = f"<h2 style='color: #1976D2; margin: 0;'>{school_name}</h2>" if school_name else ""
+
+    # رأس بتخطيط مرن: الشعار يمين، عنوان يسار (RTL)
+    header_html = f"""
+        <div style="display:flex; flex-direction:row-reverse; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="min-width:100px; text-align:right;">{logo_html}</div>
+            <div style="flex:1; text-align:right;">
+                {school_section}
+                <h1 style="color:#1976D2; margin:5px 0 0 0; font-size:24px;">📊 تقرير أداء الطالب - نظام قطر للتعليم</h1>
+            </div>
+        </div>
+    """
+
+    # قائمة المواد
+    subjects_badge = ""
+    if subject_list:
+        chips = "، ".join(subject_list)
+        subjects_badge = f"""
+        <div style="background:#EEF7FF; border:1px solid #CFE8FF; padding:10px; border-radius:8px; margin: 10px 0;">
+            <strong>المواد:</strong> {chips}
+        </div>
+        """
 
     html = f"""
     <!DOCTYPE html>
@@ -225,26 +277,23 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
         <title>تقرير {student_name}</title>
         <style>
             @page {{ size: A4; margin: 15mm; }}
-            body {{ font-family: Arial, sans-serif; direction: rtl; padding: 20px; background: #f5f5f5; }}
-            .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-            .header {{ text-align: center; border-bottom: 3px solid #1976D2; padding-bottom: 20px; margin-bottom: 30px; }}
-            h1 {{ color: #1976D2; margin: 10px 0; font-size: 24px; }}
-            h2 {{ color: #1976D2; margin: 5px 0; font-size: 20px; }}
-            .student-info {{ background: #E3F2FD; padding: 20px; border-radius: 8px; margin-bottom: 25px; }}
-            .student-info h3 {{ margin-top: 0; color: #1565C0; }}
-            table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-            th {{ background: #1976D2; color: white; padding: 12px; text-align: center; border: 1px solid #1565C0; font-size: 14px; }}
-            td {{ padding: 12px; border: 1px solid #ddd; }}
-            tr:nth-child(even) {{ background-color: #f9f9f9; }}
-            .stats-section {{ background: #FFF3E0; padding: 20px; border-radius: 8px; margin: 25px 0; }}
-            .stats-section h3 {{ color: #E65100; margin-top: 0; }}
-            .stats-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px; }}
-            .stat-box {{ background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-            .stat-value {{ font-size: 28px; font-weight: bold; color: {category_color}; }}
-            .stat-label {{ font-size: 13px; color: #666; margin-top: 5px; }}
-            .recommendation {{ background: {category_color}; color: white; padding: 20px; border-radius: 8px; margin: 25px 0; text-align: center; font-size: 16px; font-weight: bold; }}
-            .signatures {{ margin-top: 40px; border-top: 2px solid #ddd; padding-top: 20px; }}
-            .signature-line {{ margin: 15px 0; font-size: 14px; }}
+            body {{ font-family: Arial, 'DejaVu Sans', sans-serif; direction: rtl; padding: 20px; background: #f5f5f5; }}
+            .container {{ max-width: 840px; margin: 0 auto; background: white; padding: 24px 28px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }}
+            .header {{ border-bottom: 3px solid #1976D2; padding-bottom: 16px; margin-bottom: 22px; }}
+            .student-info {{ background: #E3F2FD; padding: 16px; border-radius: 8px; margin-bottom: 18px; }}
+            .student-info h3 {{ margin: 0 0 10px 0; color: #1565C0; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 14px 0; }}
+            th {{ background: #1976D2; color: white; padding: 10px; text-align: center; border: 1px solid #1565C0; font-size: 14px; }}
+            td {{ padding: 10px; border: 1px solid #ddd; }}
+            tr:nth-child(even) {{ background-color: #fafafa; }}
+            .stats-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }}
+            .stat-box {{ background: #fff; border: 1px solid #eee; padding: 14px; border-radius: 8px; text-align: center; }}
+            .stat-value {{ font-size: 26px; font-weight: bold; color: {category_color}; }}
+            .stat-label {{ font-size: 13px; color: #666; margin-top: 6px; }}
+            .overall-badge {{ background: {category_color}; color: white; padding: 10px 14px; border-radius: 999px; font-weight: bold; display:inline-block; margin: 8px 0; }}
+            .recommendation {{ background: {category_color}; color: white; padding: 14px; border-radius: 8px; margin: 16px 0; text-align: center; font-size: 15px; font-weight: 700; }}
+            .signatures {{ margin-top: 24px; border-top: 2px solid #eee; padding-top: 16px; }}
+            .signature-line {{ margin: 10px 0; font-size: 14px; }}
             @media print {{
                 body {{ background: white; padding: 0; }}
                 .container {{ box-shadow: none; max-width: 100%; }}
@@ -254,15 +303,15 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
     <body>
         <div class="container">
             <div class="header">
-                {logo_html}
-                {school_section}
-                <h1>📊 تقرير أداء الطالب - نظام قطر للتعليم</h1>
+                {header_html}
             </div>
 
             <div class="student-info">
                 <h3>معلومات الطالب</h3>
                 <p><strong>اسم الطالب:</strong> {student_name}</p>
                 <p><strong>الصف:</strong> {level} &nbsp;&nbsp;&nbsp; <strong>الشعبة:</strong> {section}</p>
+                <div class="overall-badge">نسبة الإنجاز الكلية: {overall_pct:.1f}%</div>
+                {subjects_badge}
             </div>
 
             <table>
@@ -279,21 +328,18 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
                 </tbody>
             </table>
 
-            <div class="stats-section">
-                <h3>الإحصائيات</h3>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <div class="stat-label">منجز</div>
-                        <div class="stat-value">{total_completed}</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">متبقي</div>
-                        <div class="stat-value">{remaining}</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">نسبة حل التقييمات</div>
-                        <div class="stat-value">{solve_pct:.1f}%</div>
-                    </div>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-label">منجز</div>
+                    <div class="stat-value">{total_completed}</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">متبقي</div>
+                    <div class="stat-value">{remaining}</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">نسبة حل التقييمات</div>
+                    <div class="stat-value">{overall_pct:.1f}%</div>
                 </div>
             </div>
 
@@ -309,7 +355,7 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
                 </div>
                 <div class="signature-line"><strong>مدير المدرسة/</strong> {principal if principal else "_____________"}</div>
 
-                <p style="text-align: center; color: #999; margin-top: 30px; font-size: 12px;">
+                <p style="text-align: center; color: #999; margin-top: 16px; font-size: 12px;">
                     تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d')}
                 </p>
             </div>
@@ -319,7 +365,7 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
     """
     return html
 
-# ================== MAIN APP ==================
+# ================== الواجهة الرئيسية ==================
 
 st.title("📊 محلل التقييمات الأسبوعية")
 st.markdown("---")
@@ -406,6 +452,10 @@ elif run_analysis:
                 df = pd.DataFrame(all_results)
                 st.session_state.analysis_results = df
                 pivot = create_pivot_table(df)
+
+                # إزالة أي أعمدة مكررة قبل التخزين/العرض
+                pivot = pivot.loc[:, ~pivot.columns.duplicated()]
+
                 st.session_state.pivot_table = pivot
                 st.success(f"✅ تم تحليل {len(pivot)} طالب فريد من {len(selected_sheets)} مادة!")
             else:
@@ -414,7 +464,7 @@ elif run_analysis:
         except Exception as e:
             st.error(f"❌ خطأ: {str(e)}")
 
-# ================== RESULTS & VISUALS ==================
+# ================== النتائج والرسوم ==================
 if st.session_state.pivot_table is not None:
     pivot = st.session_state.pivot_table
     df = st.session_state.analysis_results
@@ -443,6 +493,8 @@ if st.session_state.pivot_table is not None:
 
     st.subheader("📊 البيانات التفصيلية")
     display_pivot = pivot.copy()
+    # إزالة أي تكرار للأعمدة قبل العرض
+    display_pivot = display_pivot.loc[:, ~display_pivot.columns.duplicated()]
     for col in display_pivot.columns:
         if 'نسبة' in col:
             display_pivot[col] = display_pivot[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
@@ -474,68 +526,113 @@ if st.session_state.pivot_table is not None:
 
     st.divider()
 
-    # ===== الرسوم البيانية =====
+    # ===== الرسوم البيانية (محسّنة للعربية) =====
     st.subheader("📈 الرسوم البيانية")
-    import matplotlib
-    matplotlib.rcParams['axes.unicode_minus'] = False
 
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**📊 متوسط الإنجاز حسب المادة**")
         fig, ax = plt.subplots(figsize=(10, 6))
         subject_avg = df.groupby('subject')['solve_pct'].mean().sort_values(ascending=True)
-        colors = plt.cm.viridis(range(len(subject_avg)))
+
         y_pos = range(len(subject_avg))
-        bars = ax.barh(y_pos, subject_avg.values, color=colors, edgecolor='black', linewidth=1.5)
+        bars = ax.barh(list(y_pos), subject_avg.values, edgecolor='black', linewidth=1.2)
+
+        # تسميات عربية مشكلة (إن توفرت المكتبات)
+        ax.set_yticks(list(y_pos))
+        ax.set_yticklabels([shape_ar(s) for s in subject_avg.index], fontsize=11)
+
         for i, (bar, value) in enumerate(zip(bars, subject_avg.values)):
-            ax.text(value + 2, i, f'{value:.1f}%', va='center', fontsize=11, fontweight='bold')
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels([f"#{i+1}" for i in y_pos], fontsize=10)
-        ax.set_xlabel("Average Completion Rate (%)", fontsize=12, fontweight='bold')
-        ax.set_title("Performance by Subject", fontsize=14, fontweight='bold', pad=20)
-        ax.grid(axis='x', alpha=0.3, linestyle='--')
-        ax.set_xlim(0, 110)
-        ax.axvspan(0, 60, alpha=0.1, color='red')
-        ax.axvspan(60, 80, alpha=0.1, color='yellow')
-        ax.axvspan(80, 100, alpha=0.1, color='green')
+            ax.text(value + 1, i, f'{value:.1f}%', va='center', fontsize=11, fontweight='bold')
+
+        ax.set_xlabel(shape_ar("نسبة الإنجاز (%)"), fontsize=12, fontweight='bold')
+        ax.set_title(shape_ar("متوسط الإنجاز حسب المادة"), fontsize=14, fontweight='bold', pad=16)
+        ax.grid(axis='x', alpha=0.25, linestyle='--')
+        ax.set_xlim(0, max(100, (subject_avg.values.max() if len(subject_avg) else 100) + 10))
         plt.tight_layout()
         st.pyplot(fig)
-
-        st.caption("**المواد:**")
-        for i, subj in enumerate(subject_avg.index):
-            st.caption(f"#{i+1}: {subj} ({subject_avg.values[i]:.1f}%)")
 
     with col2:
         st.markdown("**📈 توزيع النسب الإجمالية**")
         if 'نسبة حل التقييمات في جميع المواد' in pivot.columns:
             fig, ax = plt.subplots(figsize=(10, 6))
             overall_scores = pivot['نسبة حل التقييمات في جميع المواد'].dropna()
-            n, bins, patches = ax.hist(overall_scores, bins=20, edgecolor='black', linewidth=1.5)
-            for i, patch in enumerate(patches):
-                if i < len(bins) - 1:
-                    bin_center = (bins[i] + bins[i+1]) / 2
-                    if bin_center >= 80:
-                        patch.set_facecolor('#4CAF50')
-                    elif bin_center >= 60:
-                        patch.set_facecolor('#FFC107')
-                    else:
-                        patch.set_facecolor('#F44336')
-            mean_val = overall_scores.mean()
-            ax.axvline(mean_val, color='blue', linestyle='--', linewidth=2.5, label=f'Average: {mean_val:.1f}%', zorder=10)
-            ax.set_xlabel("Completion Rate (%)", fontsize=12, fontweight='bold')
-            ax.set_ylabel("Number of Students", fontsize=12, fontweight='bold')
-            ax.set_title("Overall Performance Distribution", fontsize=14, fontweight='bold', pad=20)
+            n, bins, patches = ax.hist(overall_scores, bins=20, edgecolor='black', linewidth=1.2)
+            mean_val = overall_scores.mean() if len(overall_scores) else 0
+            ax.axvline(mean_val, color='blue', linestyle='--', linewidth=2.0,
+                       label=shape_ar(f'المتوسط: {mean_val:.1f}%'), zorder=10)
+
+            ax.set_xlabel(shape_ar("نسبة الإنجاز (%)"), fontsize=12, fontweight='bold')
+            ax.set_ylabel(shape_ar("عدد الطلاب"), fontsize=12, fontweight='bold')
+            ax.set_title(shape_ar("توزيع الأداء العام"), fontsize=14, fontweight='bold', pad=16)
             ax.legend(fontsize=11, loc='upper left')
-            ax.grid(axis='y', alpha=0.3, linestyle='--')
+            ax.grid(axis='y', alpha=0.25, linestyle='--')
             plt.tight_layout()
             st.pyplot(fig)
+
+    st.divider()
+
+    # ===== رسم بياني للفئات =====
+    st.subheader("🏆 توزيع الفئات")
+    view_type = st.radio("اختر نوع الرسم:", ["دائري (Donut)", "أعمدة (Bar)"], horizontal=True)
+    if 'الفئة' in pivot.columns:
+        cat_order = [
+            "البلاتينية 🥇",
+            "الذهبي 🥈",
+            "الفضي 🥉",
+            "البرونزي",
+            "يحتاج تحسين ⚠️",
+            "لا يستفيد من النظام 🚫",
+            "-"
+        ]
+        cat_counts = pivot['الفئة'].fillna("-").value_counts().reindex(cat_order, fill_value=0)
+        total_students = int(cat_counts.sum())
+        st.caption(f"إجمالي الطلاب المحسوبين: {total_students}")
+
+        if view_type == "دائري (Donut)":
+            fig, ax = plt.subplots(figsize=(8, 6))
+            labels = [shape_ar(lbl) for lbl in cat_counts.index]
+            values = cat_counts.values
+            wedges, texts, autotexts = ax.pie(
+                values,
+                labels=labels,
+                autopct=lambda p: f"{p:.1f}%\n({int(round(p*total_students/100))})" if p > 0 else "",
+                startangle=90,
+                pctdistance=0.78,
+                wedgeprops=dict(linewidth=1.2, edgecolor='white'),
+                textprops=dict(fontsize=11)
+            )
+            centre_circle = plt.Circle((0, 0), 0.55, fc='white')
+            fig.gca().add_artist(centre_circle)
+            ax.set_title(shape_ar("توزيع الطلاب حسب الفئات"), fontsize=14, fontweight='bold', pad=12)
+            st.pyplot(fig)
+        else:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            y_pos = range(len(cat_counts))
+            bars = ax.barh(list(y_pos), cat_counts.values, edgecolor='black', linewidth=1.2)
+            ax.set_yticks(list(y_pos))
+            ax.set_yticklabels([shape_ar(c) for c in cat_counts.index], fontsize=11)
+            for i, (bar, val) in enumerate(zip(bars, cat_counts.values)):
+                ax.text(bar.get_width() + max(1, total_students*0.01), i, f"{val}", va='center', fontsize=11, fontweight='bold')
+            ax.set_xlabel(shape_ar("عدد الطلاب"), fontsize=12, fontweight='bold')
+            ax.set_title(shape_ar("توزيع الطلاب حسب الفئات"), fontsize=14, fontweight='bold', pad=12)
+            ax.grid(axis='x', alpha=0.25, linestyle='--')
+            plt.tight_layout()
+            st.pyplot(fig)
+    else:
+        st.info("لا يمكن رسم الفئات: عمود 'الفئة' غير موجود في الجدول المحوري.")
 
     st.divider()
 
     # ===== التحليل حسب المادة =====
     st.subheader("📚 التحليل حسب المادة")
     subjects = sorted(df['subject'].unique())
-    selected_subject = st.selectbox("اختر المادة للتحليل التفصيلي:", subjects, key="subject_analysis")
+    # نُشكّل أسماء المواد عربيًا في القائمة
+    display_subjects = [shape_ar(s) for s in subjects]
+    subj_map = dict(zip(display_subjects, subjects))
+    selected_subject_display = st.selectbox("اختر المادة للتحليل التفصيلي:", display_subjects, key="subject_analysis")
+    selected_subject = subj_map[selected_subject_display]
+
     if selected_subject:
         subject_df = df[df['subject'] == selected_subject]
         col1, col2, col3, col4 = st.columns(4)
@@ -555,18 +652,22 @@ if st.session_state.pivot_table is not None:
 
         st.markdown("##### 📊 رسم بياني للمادة")
         fig, ax = plt.subplots(figsize=(12, 5))
-        categories = pd.cut(subject_df['solve_pct'], bins=[0, 50, 70, 80, 90, 100], labels=['<50%', '50-70%', '70-80%', '80-90%', '90-100%'])
+        categories = pd.cut(
+            subject_df['solve_pct'],
+            bins=[0, 50, 70, 80, 90, 100],
+            labels=[shape_ar('<50%'), shape_ar('50-70%'), shape_ar('70-80%'),
+                    shape_ar('80-90%'), shape_ar('90-100%')]
+        )
         category_counts = categories.value_counts().sort_index()
-        colors_cat = ['#F44336', '#FF9800', '#FFC107', '#8BC34A', '#4CAF50']
-        bars = ax.bar(range(len(category_counts)), category_counts.values, color=colors_cat, edgecolor='black', linewidth=1.5)
+        bars = ax.bar(range(len(category_counts)), category_counts.values, edgecolor='black', linewidth=1.2)
         for bar in bars:
             h = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., h + 0.3, f'{int(h)}', ha='center', va='bottom', fontsize=12, fontweight='bold')
         ax.set_xticks(range(len(category_counts)))
         ax.set_xticklabels(category_counts.index, fontsize=11)
-        ax.set_ylabel("Number of Students", fontsize=12, fontweight='bold')
-        ax.set_title(f"Performance Distribution - {selected_subject}", fontsize=14, fontweight='bold', pad=20)
-        ax.grid(axis='y', alpha=0.3, linestyle='--')
+        ax.set_ylabel(shape_ar("عدد الطلاب"), fontsize=12, fontweight='bold')
+        ax.set_title(shape_ar(f"توزيع الأداء - {selected_subject_display}"), fontsize=14, fontweight='bold', pad=16)
+        ax.grid(axis='y', alpha=0.25, linestyle='--')
         plt.tight_layout()
         st.pyplot(fig)
 
@@ -591,15 +692,27 @@ if st.session_state.pivot_table is not None:
         }
         if report_type == "طالب واحد":
             student_row = pivot[pivot['اسم الطالب'] == selected_student].iloc[0]
-            html = generate_student_html_report(student_row, settings['school'], settings['coordinator'], settings['academic'], settings['admin'], settings['principal'], settings['logo'])
-            st.download_button(f"📥 تحميل تقرير {selected_student}", html.encode('utf-8'), f"تقرير_{selected_student}.html", "text/html", use_container_width=True)
+            html = generate_student_html_report(
+                student_row, settings['school'], settings['coordinator'],
+                settings['academic'], settings['admin'], settings['principal'], settings['logo']
+            )
+            st.download_button(
+                f"📥 تحميل تقرير {selected_student}",
+                html.encode('utf-8'),
+                f"تقرير_{selected_student}.html",
+                "text/html",
+                use_container_width=True
+            )
             st.success("✅ تم إنشاء التقرير!")
         else:
             with st.spinner(f"جاري إنشاء {len(pivot)} تقرير..."):
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w') as zf:
                     for _, row in pivot.iterrows():
-                        html = generate_student_html_report(row, settings['school'], settings['coordinator'], settings['academic'], settings['admin'], settings['principal'], settings['logo'])
+                        html = generate_student_html_report(
+                            row, settings['school'], settings['coordinator'],
+                            settings['academic'], settings['admin'], settings['principal'], settings['logo']
+                        )
                         filename = f"تقرير_{row['اسم الطالب']}.html"
                         zf.writestr(filename, html.encode('utf-8'))
                 st.download_button(
