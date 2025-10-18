@@ -10,14 +10,14 @@ from src.email_reports import SubjectReportGenerator, EmailSender
 
 # Page config
 st.set_page_config(
-    page_title="Weekly Assessments Analyzer v3.7",
+    page_title="Weekly Assessments Analyzer v3.8",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # Title
-st.title("📊 Weekly Assessments Analyzer v3.7")
+st.title("📊 Weekly Assessments Analyzer v3.8")
 
 # Initialize session state
 if "analysis_results" not in st.session_state:
@@ -29,16 +29,26 @@ if "uploaded_files" not in st.session_state:
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     
-    # File upload
+    # File upload - IMPROVED VERSION
     st.subheader("📁 تحميل الملفات")
+    
+    # Add clear instructions
+    st.info("👇 اضغط على الزر أدناه لرفع ملفات Excel")
+    
     uploaded_files = st.file_uploader(
-        "اختر ملفات Excel",
+        "اختر ملفات Excel (.xlsx أو .xls)",
         type=["xlsx", "xls"],
         accept_multiple_files=True,
-        label_visibility="collapsed"
+        help="يمكنك رفع ملف واحد أو عدة ملفات معاً",
+        key="file_uploader"
     )
     
+    # Show upload status
     if uploaded_files:
+        st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
+        for file in uploaded_files:
+            st.text(f"📄 {file.name}")
+        
         st.session_state.uploaded_files = uploaded_files
         
         # Get sheets from first file for preview
@@ -47,16 +57,21 @@ with st.sidebar:
             xls = pd.ExcelFile(file_path)
             sheets = xls.sheet_names
             
+            st.subheader("📋 اختيار الأوراق")
             selected_sheets = st.multiselect(
-                "اختر الأوراق",
+                "اختر الأوراق للتحليل",
                 sheets,
-                default=sheets if len(sheets) <= 3 else sheets[:3]
+                default=sheets if len(sheets) <= 3 else sheets[:3],
+                help="يمكنك اختيار ورقة واحدة أو عدة أوراق"
             )
         except Exception as e:
-            st.error(f"خطأ في قراءة الملف: {e}")
+            st.error(f"❌ خطأ في قراءة الملف: {e}")
             selected_sheets = []
     else:
+        st.warning("⚠️ لم يتم رفع أي ملفات بعد")
         selected_sheets = []
+    
+    st.divider()
     
     # Analysis parameters
     st.subheader("🔧 معاملات التحليل")
@@ -93,6 +108,8 @@ with st.sidebar:
             help="صف تواريخ الاستحقاق (3 افتراضي)"
         )
     
+    st.divider()
+    
     # Date filter
     st.subheader("📅 تصفية التواريخ")
     enable_filter = st.checkbox("تفعيل تصفية النطاق الزمني", value=False)
@@ -115,17 +132,73 @@ with st.sidebar:
     else:
         date_range = None
     
-    # Action button
     st.divider()
-    run_analysis = st.button(
-        "🚀 تشغيل التحليل الآن",
-        use_container_width=True,
-        type="primary"
-    )
+    
+    # Action button - MORE PROMINENT
+    if uploaded_files and selected_sheets:
+        run_analysis = st.button(
+            "🚀 تشغيل التحليل الآن",
+            use_container_width=True,
+            type="primary"
+        )
+    else:
+        st.button(
+            "🚀 تشغيل التحليل الآن",
+            use_container_width=True,
+            type="primary",
+            disabled=True,
+            help="يرجى رفع الملفات واختيار الأوراق أولاً"
+        )
+        run_analysis = False
 
 # Main content
-if run_analysis and uploaded_files and selected_sheets:
-    with st.spinner("جاري التحليل..."):
+if not uploaded_files:
+    # Show prominent upload instructions on main page
+    st.markdown("---")
+    st.markdown("""
+    ## 🎯 كيفية الاستخدام
+    
+    ### الخطوة 1️⃣: رفع الملفات
+    - اذهب إلى القائمة الجانبية على اليسار 👈
+    - اضغط على زر **"Browse files"** أو **"استعراض الملفات"**
+    - اختر ملف Excel واحد أو أكثر (.xlsx أو .xls)
+    
+    ### الخطوة 2️⃣: اختيار الأوراق
+    - بعد رفع الملف، ستظهر قائمة بأوراق العمل
+    - اختر الأوراق التي تريد تحليلها
+    
+    ### الخطوة 3️⃣: تشغيل التحليل
+    - اضبط المعاملات إذا لزم الأمر
+    - اضغط على **"🚀 تشغيل التحليل الآن"**
+    
+    ---
+    
+    ## 📋 متطلبات الملف
+    
+    يجب أن يحتوي ملف Excel على:
+    - ✅ أسماء الطلاب في العمود A (افتراضياً)
+    - ✅ التقييمات تبدأ من العمود H (افتراضياً)
+    - ✅ تواريخ الاستحقاق في الصف 3 (افتراضياً)
+    - ✅ أسماء الطلاب في الصف 5 (افتراضياً)
+    
+    """)
+    
+    # Add a big upload button on main page too
+    st.markdown("### 📤 أو ارفع الملفات هنا مباشرة:")
+    
+    main_uploaded = st.file_uploader(
+        "اسحب الملفات وأفلتها هنا",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        key="main_uploader"
+    )
+    
+    if main_uploaded:
+        st.session_state.uploaded_files = main_uploaded
+        st.rerun()
+
+elif run_analysis and uploaded_files and selected_sheets:
+    with st.spinner("جاري التحليل... ⏳"):
         try:
             analyzer = AssessmentAnalyzer(
                 start_col_letter=start_col,
@@ -136,27 +209,33 @@ if run_analysis and uploaded_files and selected_sheets:
             )
             
             results = []
-            for uploaded_file in uploaded_files:
+            progress_bar = st.progress(0)
+            
+            for idx, uploaded_file in enumerate(uploaded_files):
+                st.text(f"📊 تحليل الملف: {uploaded_file.name}")
                 file_results = analyzer.analyze_file(
                     uploaded_file,
                     selected_sheets
                 )
                 results.extend(file_results)
+                progress_bar.progress((idx + 1) / len(uploaded_files))
             
             if results:
                 st.session_state.analysis_results = pd.DataFrame(results)
-                st.success("✅ تم إكمال التحليل بنجاح!")
+                st.success(f"✅ تم إكمال التحليل بنجاح! تم تحليل {len(results)} طالب")
             else:
-                st.warning("لم يتم العثور على بيانات للتحليل.")
+                st.warning("⚠️ لم يتم العثور على بيانات للتحليل.")
         
         except Exception as e:
             st.error(f"❌ خطأ في التحليل: {str(e)}")
+            st.exception(e)
 
 # Display results
 if st.session_state.analysis_results is not None:
     df = st.session_state.analysis_results
     
     # Summary statistics
+    st.markdown("## 📈 الإحصائيات العامة")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("👥 عدد الطلاب", len(df))
@@ -493,14 +572,15 @@ if st.session_state.analysis_results is not None:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        report_type = st.radio(
+        html_report_type = st.radio(
             "نوع التقرير",
             ["جميع الطلاب", "الطلاب المصفاة", "فئة محددة"],
-            horizontal=True
+            horizontal=True,
+            key="html_report_type"
         )
     
     with col2:
-        if report_type == "فئة محددة":
+        if html_report_type == "فئة محددة":
             selected_category = st.selectbox(
                 "اختر الفئة",
                 ["البلاتينية", "الذهبي", "الفضي", "البرونزي", "تحتاج إلى تحسين"]
@@ -509,9 +589,9 @@ if st.session_state.analysis_results is not None:
             selected_category = None
     
     # Determine which data to use for reports
-    if report_type == "جميع الطلاب":
+    if html_report_type == "جميع الطلاب":
         report_data = df
-    elif report_type == "الطلاب المصفاة":
+    elif html_report_type == "الطلاب المصفاة":
         report_data = filtered_df
     else:  # فئة محددة
         report_data = df[df["category"] == selected_category]
@@ -542,22 +622,7 @@ if st.session_state.analysis_results is not None:
                 except Exception as e:
                     st.error(f"❌ خطأ في إنشاء التقارير: {str(e)}")
 
-else:
-    if not uploaded_files:
-        st.info("👈 الرجاء تحميل ملفات Excel من الشريط الجانبي")
-    elif not selected_sheets:
-        st.info("👈 الرجاء اختيار أوراق العمل")
-    else:
-        st.info("👈 انقر على 'تشغيل التحليل الآن' للبدء")
-```
-
----
-
-## 📄 **requirements.txt**
-```
-pandas>=2.2.2
-openpyxl>=3.1.5
-xlrd==2.0.1
-matplotlib>=3.8.0
-streamlit>=1.38.0
-python-dotenv>=1.0.0
+elif st.session_state.uploaded_files and not selected_sheets:
+    st.info("📋 الرجاء اختيار أوراق العمل من القائمة الجانبية")
+elif st.session_state.uploaded_files and selected_sheets:
+    st.info("👉 انقر على 'تشغيل التحليل الآن' في القائمة الجانبية للبدء")
