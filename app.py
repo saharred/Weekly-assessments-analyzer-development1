@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import zipfile
 import io
 from datetime import datetime
+import re
 
 # ========= إعداد الصفحة =========
 st.set_page_config(
@@ -11,6 +12,84 @@ st.set_page_config(
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
+)
+
+# ========= ثيم عنّابي/أبيض (CSS) =========
+PRIMARY = "#8A1538"  # عنّابي قطر
+PRIMARY_DARK = "#6b0f2b"
+ACCENT = "#D9B3C2"
+BG_SOFT = "#FBF9FA"
+CARD_BG = "#FFFFFF"
+
+st.markdown(
+    f"""
+    <style>
+    html, body, [class*="css"] {{
+      font-family: "Tajawal", "Cairo", "DejaVu Sans", Arial, sans-serif !important;
+    }}
+    /* رأس الصفحة والفواصل */
+    h1, h2, h3, h4 {{
+      color: {PRIMARY} !important;
+    }}
+    .block-container {{
+      padding-top: 1.2rem;
+      padding-bottom: 2rem;
+      background: {BG_SOFT};
+    }}
+    /* أزرار */
+    .stButton>button {{
+      background: {PRIMARY};
+      color: white;
+      border-radius: 10px;
+      border: 1px solid {PRIMARY_DARK};
+    }}
+    .stButton>button:hover {{
+      background: {PRIMARY_DARK};
+      color: #fff;
+      border-color: {PRIMARY_DARK};
+    }}
+    /* الجداول */
+    thead tr th {{
+      background-color: {PRIMARY} !important;
+      color: #fff !important;
+      font-weight: 700 !important;
+      border: 1px solid {PRIMARY_DARK} !important;
+    }}
+    tbody tr td {{
+      border: 1px solid #eee !important;
+    }}
+    /* بطاقات */
+    .card {{
+      background: {CARD_BG};
+      border: 1px solid #eee;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }}
+    /* شارة عنابية */
+    .chip {{
+      display:inline-block; 
+      padding:6px 12px; 
+      margin:4px 6px; 
+      border-radius: 999px; 
+      background:#fff; 
+      color:{PRIMARY}; 
+      border:1px solid {PRIMARY}; 
+      font-weight:600; 
+      font-size:13px;
+    }}
+    /* شريط نسبة الإنجاز */
+    .badge-overall {{
+      background:{PRIMARY};
+      color:#fff;
+      padding:8px 12px;
+      border-radius:999px;
+      display:inline-block;
+      font-weight:700;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
 # ========= دعم العربية في الرسوم (اختياري) =========
@@ -22,16 +101,34 @@ try:
             return ""
         return get_display(arabic_reshaper.reshape(str(text)))
 except Exception:
-    # لو لم تتوفر المكتبات، نرجع النص كما هو
     def shape_ar(text: str) -> str:
         return str(text) if text is not None else ""
 
 import matplotlib
-# خط يدعم العربية (DejaVu Sans غالباً مناسب)
 matplotlib.rcParams['font.family'] = 'DejaVu Sans'
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 # ================== دوال مساعدة ==================
+
+def normalize_ar_name(s: str) -> str:
+    """
+    تطبيع أسماء الطلاب لمنع التكرار:
+    - إزالة التطويل (ـ) والمدّ.
+    - توحيد الألف (أ/إ/آ -> ا).
+    - إزالة المسافات الزائدة والرموز غير المفيدة.
+    """
+    if s is None:
+        return ""
+    s = str(s)
+    # إزالة التطويل
+    s = s.replace("ـ", "")
+    # توحيد الألف
+    s = re.sub(r"[إأآٱ]", "ا", s)
+    # إزالة التشكيل البسيط
+    s = re.sub(r"[ًٌٍَُِّْـ]", "", s)
+    # إزالة مسافات مضاعفة
+    s = " ".join(s.split())
+    return s.strip()
 
 def parse_sheet_name(sheet_name: str):
     """استخراج المادة/الصف/الشعبة من اسم الورقة"""
@@ -85,7 +182,8 @@ def analyze_excel_file(file, sheet_name):
             if pd.isna(student_name) or str(student_name).strip() == "":
                 continue
 
-            student_name_clean = " ".join(str(student_name).strip().split())
+            # تطبيع الاسم لمنع التكرار
+            student_name_clean = normalize_ar_name(student_name)
 
             # --- منطقك الأصلي ---
             m_count = 0
@@ -95,8 +193,7 @@ def analyze_excel_file(file, sheet_name):
                 if col_idx < df.shape[1]:
                     cell_value = df.iloc[idx, col_idx]
                     if pd.notna(cell_value):
-                        cell_str = str(cell_value).strip().upper()
-                        if cell_str == 'M':
+                        if str(cell_value).strip().upper() == 'M':
                             m_count += 1
                             if i < len(assessment_titles):
                                 pending_titles.append(assessment_titles[i])
@@ -122,7 +219,11 @@ def analyze_excel_file(file, sheet_name):
         return []
 
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Pivot: صف واحد لكل طالب بلا تكرار"""
+    """Pivot: صف واحد لكل طالب بلا تكرار (بعد تطبيع الاسم)"""
+    # تأكيد التطبيع لو جاءت بيانات خارجية
+    df = df.copy()
+    df["student_name"] = df["student_name"].apply(normalize_ar_name)
+
     df_clean = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
 
     unique_students = df_clean[['student_name', 'level', 'section']].drop_duplicates()
@@ -176,18 +277,19 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
         'section': 'الشعبة'
     })
 
-    # إزالة أي أعمدة مكررة (حل مشكلة تكرار عمود أسماء الطلاب)
+    # إزالة أي أعمدة مكررة + دمج تكرار الصفوف (لو بقي فرق بسيط بالشعبة/الصف الفارغ)
     result = result.loc[:, ~result.columns.duplicated()]
+    result['الصف'] = result['الصف'].fillna("").astype(str).str.strip()
+    result['الشعبة'] = result['الشعبة'].fillna("").astype(str).str.strip()
     result = result.drop_duplicates(subset=['اسم الطالب', 'الصف', 'الشعبة'], keep='first').reset_index(drop=True)
     return result
 
 def generate_student_html_report(student_row: pd.Series, school_name="", coordinator="", academic="", admin="", principal="", logo_base64="") -> str:
-    """تقرير الطالب الفردي — الشعار يمين، نسبة الإنجاز، قائمة المواد."""
+    """تقرير الطالب — شعار يمين، نسبة إنجاز، مواد كـ شارات عنابية."""
     student_name = student_row['اسم الطالب']
     level = student_row['الصف']
     section = student_row['الشعبة']
 
-    # استخراج المواد + الإحصاءات
     total_assessments = 0
     total_completed = 0
     subjects_html = ""
@@ -211,14 +313,14 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
 
                 subjects_html += f"""
                 <tr>
-                    <td style="text-align: right; padding: 10px; border: 1px solid #ddd;">{subject}</td>
-                    <td style="text-align: center; padding: 10px; border: 1px solid #ddd;">{total}</td>
-                    <td style="text-align: center; padding: 10px; border: 1px solid #ddd;">{completed}</td>
-                    <td style="text-align: right; padding: 10px; border: 1px solid #ddd;">{pending_titles}</td>
+                    <td style="text-align: right; padding: 10px; border: 1px solid #eee;">{subject}</td>
+                    <td style="text-align: center; padding: 10px; border: 1px solid #eee;">{total}</td>
+                    <td style="text-align: center; padding: 10px; border: 1px solid #eee;">{completed}</td>
+                    <td style="text-align: right; padding: 10px; border: 1px solid #eee;">{pending_titles}</td>
                 </tr>
                 """
 
-    # نسبة الإنجاز العامة: من العمود الجاهز أو محسوبة
+    # النسبة العامة
     if 'نسبة حل التقييمات في جميع المواد' in student_row.index and pd.notna(student_row['نسبة حل التقييمات في جميع المواد']):
         overall_pct = float(student_row['نسبة حل التقييمات في جميع المواد'])
     else:
@@ -231,41 +333,40 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
         category_color = "#9E9E9E"
     elif overall_pct >= 90:
         recommendation = "أداء ممتاز! استمر في التميز 🌟"
-        category_color = "#4CAF50"
+        category_color = PRIMARY
     elif overall_pct >= 80:
         recommendation = "أداء جيد جدًا، حافظ على مستواك 👍"
-        category_color = "#8BC34A"
+        category_color = "#A63D5C"
     elif overall_pct >= 70:
         recommendation = "أداء جيد، يمكنك التحسن أكثر ✓"
-        category_color = "#FFC107"
+        category_color = "#C97286"
     elif overall_pct >= 60:
         recommendation = "أداء مقبول، تحتاج لمزيد من الجهد ⚠️"
-        category_color = "#FF9800"
+        category_color = "#E09BAC"
     else:
         recommendation = "يرجى الاهتمام أكثر بالتقييمات ومراجعة المواد"
-        category_color = "#F44336"
+        category_color = "#F05C6B"
 
     logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="max-height: 80px; margin-bottom: 10px;" />' if logo_base64 else ""
-    school_section = f"<h2 style='color: #1976D2; margin: 0;'>{school_name}</h2>" if school_name else ""
+    school_section = f"<h2 style='color: {PRIMARY}; margin: 0;'>{school_name}</h2>" if school_name else ""
 
-    # رأس بتخطيط مرن: الشعار يمين، عنوان يسار (RTL)
     header_html = f"""
         <div style="display:flex; flex-direction:row-reverse; align-items:center; justify-content:space-between; gap:10px;">
             <div style="min-width:100px; text-align:right;">{logo_html}</div>
             <div style="flex:1; text-align:right;">
                 {school_section}
-                <h1 style="color:#1976D2; margin:5px 0 0 0; font-size:24px;">📊 تقرير أداء الطالب - نظام قطر للتعليم</h1>
+                <h1 style="color:{PRIMARY}; margin:5px 0 0 0; font-size:24px;">📊 تقرير أداء الطالب - نظام قطر للتعليم</h1>
             </div>
         </div>
     """
 
-    # قائمة المواد
+    # شارات المواد (عنابية)
     subjects_badge = ""
     if subject_list:
-        chips = "، ".join(subject_list)
+        chips = "".join([f"<span class='chip'>{subj}</span>" for subj in subject_list])
         subjects_badge = f"""
-        <div style="background:#EEF7FF; border:1px solid #CFE8FF; padding:10px; border-radius:8px; margin: 10px 0;">
-            <strong>المواد:</strong> {chips}
+        <div style="background:#F2E8EC; border:1px solid {ACCENT}; padding:10px; border-radius:10px; margin: 10px 0;">
+            <strong style="color:{PRIMARY};">المواد:</strong> {chips}
         </div>
         """
 
@@ -276,22 +377,22 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
         <meta charset="UTF-8">
         <title>تقرير {student_name}</title>
         <style>
-            @page {{ size: A4; margin: 15mm; }}
-            body {{ font-family: Arial, 'DejaVu Sans', sans-serif; direction: rtl; padding: 20px; background: #f5f5f5; }}
-            .container {{ max-width: 840px; margin: 0 auto; background: white; padding: 24px 28px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }}
-            .header {{ border-bottom: 3px solid #1976D2; padding-bottom: 16px; margin-bottom: 22px; }}
-            .student-info {{ background: #E3F2FD; padding: 16px; border-radius: 8px; margin-bottom: 18px; }}
-            .student-info h3 {{ margin: 0 0 10px 0; color: #1565C0; }}
+            @page {{ size: A4; margin: 14mm; }}
+            body {{ font-family: "Tajawal","Cairo","DejaVu Sans", Arial, sans-serif; direction: rtl; padding: 20px; background: {BG_SOFT}; }}
+            .container {{ max-width: 840px; margin: 0 auto; background: {CARD_BG}; padding: 24px 28px; border: 1px solid #eee; border-radius: 14px; }}
+            .header {{ border-bottom: 3px solid {PRIMARY}; padding-bottom: 16px; margin-bottom: 22px; }}
+            .student-info {{ background: #F3F7FB; padding: 16px; border-radius: 10px; margin-bottom: 18px; }}
+            .student-info h3 {{ margin: 0 0 10px 0; color: {PRIMARY}; }}
             table {{ width: 100%; border-collapse: collapse; margin: 14px 0; }}
-            th {{ background: #1976D2; color: white; padding: 10px; text-align: center; border: 1px solid #1565C0; font-size: 14px; }}
-            td {{ padding: 10px; border: 1px solid #ddd; }}
+            th {{ background: {PRIMARY}; color: white; padding: 10px; text-align: center; border: 1px solid {PRIMARY_DARK}; font-size: 14px; }}
+            td {{ padding: 10px; border: 1px solid #eee; }}
             tr:nth-child(even) {{ background-color: #fafafa; }}
             .stats-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }}
-            .stat-box {{ background: #fff; border: 1px solid #eee; padding: 14px; border-radius: 8px; text-align: center; }}
-            .stat-value {{ font-size: 26px; font-weight: bold; color: {category_color}; }}
+            .stat-box {{ background: #fff; border: 1px solid #eee; padding: 14px; border-radius: 10px; text-align: center; }}
+            .stat-value {{ font-size: 26px; font-weight: bold; color: {PRIMARY}; }}
             .stat-label {{ font-size: 13px; color: #666; margin-top: 6px; }}
-            .overall-badge {{ background: {category_color}; color: white; padding: 10px 14px; border-radius: 999px; font-weight: bold; display:inline-block; margin: 8px 0; }}
-            .recommendation {{ background: {category_color}; color: white; padding: 14px; border-radius: 8px; margin: 16px 0; text-align: center; font-size: 15px; font-weight: 700; }}
+            .overall-badge {{ background: {PRIMARY}; color: white; padding: 8px 12px; border-radius: 999px; font-weight: 700; display:inline-block; }}
+            .recommendation {{ background: {category_color}; color: white; padding: 14px; border-radius: 10px; margin: 16px 0; text-align: center; font-size: 15px; font-weight: 700; }}
             .signatures {{ margin-top: 24px; border-top: 2px solid #eee; padding-top: 16px; }}
             .signature-line {{ margin: 10px 0; font-size: 14px; }}
             @media print {{
@@ -302,9 +403,7 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
     </head>
     <body>
         <div class="container">
-            <div class="header">
-                {header_html}
-            </div>
+            <div class="header">{header_html}</div>
 
             <div class="student-info">
                 <h3>معلومات الطالب</h3>
@@ -453,9 +552,8 @@ elif run_analysis:
                 st.session_state.analysis_results = df
                 pivot = create_pivot_table(df)
 
-                # إزالة أي أعمدة مكررة قبل التخزين/العرض
+                # إزالة أعمدة مكررة والتأكيد على عدم تكرار الأسماء
                 pivot = pivot.loc[:, ~pivot.columns.duplicated()]
-
                 st.session_state.pivot_table = pivot
                 st.success(f"✅ تم تحليل {len(pivot)} طالب فريد من {len(selected_sheets)} مادة!")
             else:
@@ -482,24 +580,18 @@ if st.session_state.pivot_table is not None:
         platinum = len(pivot[pivot['الفئة'].str.contains('البلاتينية', na=False)]) if 'الفئة' in pivot.columns else 0
         st.metric("🥇 البلاتينية", platinum)
     with col5:
-        not_using = len(pivot[pivot['الفئة'].str.contains('لا يستفيد', na=False)]) if 'الفئة' in pivot.columns else 0
         needs_improvement = len(pivot[pivot['الفئة'].str.contains('يحتاج تحسين', na=False)]) if 'الفئة' in pivot.columns else 0
         st.metric("⚠️ يحتاج تحسين", needs_improvement)
-
-    if not_using > 0:
-        st.warning(f"🚫 **تنبيه:** {not_using} طالب لا يستفيد من النظام (نسبة الإنجاز 0%)")
 
     st.divider()
 
     st.subheader("📊 البيانات التفصيلية")
-    display_pivot = pivot.copy()
-    # إزالة أي تكرار للأعمدة قبل العرض
-    display_pivot = display_pivot.loc[:, ~display_pivot.columns.duplicated()]
+    display_pivot = pivot.copy().loc[:, ~pivot.columns.duplicated()]
     for col in display_pivot.columns:
         if 'نسبة' in col:
             display_pivot[col] = display_pivot[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "-")
     display_pivot = display_pivot.fillna("-")
-    st.dataframe(display_pivot, use_container_width=True, height=500)
+    st.dataframe(display_pivot, use_container_width=True, height=520)
 
     st.markdown("### 📥 تنزيل النتائج")
     col1, col2 = st.columns(2)
@@ -526,7 +618,7 @@ if st.session_state.pivot_table is not None:
 
     st.divider()
 
-    # ===== الرسوم البيانية (محسّنة للعربية) =====
+    # ===== الرسوم البيانية (عربي) =====
     st.subheader("📈 الرسوم البيانية")
 
     col1, col2 = st.columns(2)
@@ -534,17 +626,12 @@ if st.session_state.pivot_table is not None:
         st.markdown("**📊 متوسط الإنجاز حسب المادة**")
         fig, ax = plt.subplots(figsize=(10, 6))
         subject_avg = df.groupby('subject')['solve_pct'].mean().sort_values(ascending=True)
-
         y_pos = range(len(subject_avg))
         bars = ax.barh(list(y_pos), subject_avg.values, edgecolor='black', linewidth=1.2)
-
-        # تسميات عربية مشكلة (إن توفرت المكتبات)
         ax.set_yticks(list(y_pos))
         ax.set_yticklabels([shape_ar(s) for s in subject_avg.index], fontsize=11)
-
         for i, (bar, value) in enumerate(zip(bars, subject_avg.values)):
             ax.text(value + 1, i, f'{value:.1f}%', va='center', fontsize=11, fontweight='bold')
-
         ax.set_xlabel(shape_ar("نسبة الإنجاز (%)"), fontsize=12, fontweight='bold')
         ax.set_title(shape_ar("متوسط الإنجاز حسب المادة"), fontsize=14, fontweight='bold', pad=16)
         ax.grid(axis='x', alpha=0.25, linestyle='--')
@@ -559,9 +646,8 @@ if st.session_state.pivot_table is not None:
             overall_scores = pivot['نسبة حل التقييمات في جميع المواد'].dropna()
             n, bins, patches = ax.hist(overall_scores, bins=20, edgecolor='black', linewidth=1.2)
             mean_val = overall_scores.mean() if len(overall_scores) else 0
-            ax.axvline(mean_val, color='blue', linestyle='--', linewidth=2.0,
+            ax.axvline(mean_val, color=PRIMARY, linestyle='--', linewidth=2.0,
                        label=shape_ar(f'المتوسط: {mean_val:.1f}%'), zorder=10)
-
             ax.set_xlabel(shape_ar("نسبة الإنجاز (%)"), fontsize=12, fontweight='bold')
             ax.set_ylabel(shape_ar("عدد الطلاب"), fontsize=12, fontweight='bold')
             ax.set_title(shape_ar("توزيع الأداء العام"), fontsize=14, fontweight='bold', pad=16)
@@ -627,7 +713,6 @@ if st.session_state.pivot_table is not None:
     # ===== التحليل حسب المادة =====
     st.subheader("📚 التحليل حسب المادة")
     subjects = sorted(df['subject'].unique())
-    # نُشكّل أسماء المواد عربيًا في القائمة
     display_subjects = [shape_ar(s) for s in subjects]
     subj_map = dict(zip(display_subjects, subjects))
     selected_subject_display = st.selectbox("اختر المادة للتحليل التفصيلي:", display_subjects, key="subject_analysis")
@@ -640,15 +725,6 @@ if st.session_state.pivot_table is not None:
         with col2: st.metric("📈 متوسط الإنجاز", f"{subject_df['solve_pct'].mean():.1f}%")
         with col3: st.metric("🏆 أعلى نسبة", f"{subject_df['solve_pct'].max():.1f}%")
         with col4: st.metric("⚠️ أقل نسبة", f"{subject_df['solve_pct'].min():.1f}%")
-
-        st.markdown("#### 📊 توزيع الطلاب")
-        col1, col2, col3 = st.columns(3)
-        excellent = len(subject_df[subject_df['solve_pct'] >= 90])
-        good = len(subject_df[(subject_df['solve_pct'] >= 70) & (subject_df['solve_pct'] < 90)])
-        weak = len(subject_df[subject_df['solve_pct'] < 70])
-        with col1: st.metric("ممتاز (90%+)", excellent, delta=f"{(excellent/len(subject_df)*100):.1f}%" if len(subject_df) else "0%")
-        with col2: st.metric("جيد (70-89%)", good, delta=f"{(good/len(subject_df)*100):.1f}%" if len(subject_df) else "0%")
-        with col3: st.metric("يحتاج دعم (<70%)", weak, delta=f"{(weak/len(subject_df)*100):.1f}%" if len(subject_df) else "0%", delta_color="inverse")
 
         st.markdown("##### 📊 رسم بياني للمادة")
         fig, ax = plt.subplots(figsize=(12, 5))
