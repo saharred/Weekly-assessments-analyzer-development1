@@ -3,626 +3,429 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import zipfile
 import io
-from datetime import datetime, timedelta
-from pathlib import Path
-from src.analyzer import AssessmentAnalyzer, generate_html_report
-from src.email_reports import SubjectReportGenerator, EmailSender
+from datetime import datetime
+import string
 
 # Page config
 st.set_page_config(
-    page_title="Weekly Assessments Analyzer v3.8",
+    page_title="Weekly Assessments Analyzer",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Title
-st.title("📊 Weekly Assessments Analyzer v3.8")
+# ================== HELPER FUNCTIONS ==================
+
+def col_to_index(col_letter):
+    """Convert column letter to zero-based index"""
+    return sum((ord(c) - ord('A') + 1) * (26 ** i) for i, c in enumerate(reversed(col_letter.upper()))) - 1
+
+def categorize_student(solve_pct):
+    """Categorize student based on solve percentage"""
+    if solve_pct >= 90:
+        return "البلاتينية", "أداء ممتاز! استمر في التميز 🌟"
+    elif solve_pct >= 80:
+        return "الذهبي", "أداء جيد جداً، حافظ على مستواك 🥇"
+    elif solve_pct >= 70:
+        return "الفضي", "أداء جيد، يمكنك التحسن أكثر 🥈"
+    elif solve_pct >= 60:
+        return "البرونزي", "أداء مقبول، تحتاج لمزيد من الجهد 🥉"
+    else:
+        return "تحتاج إلى تحسين", "يرجى الاهتمام أكثر بالتقييمات ⚠️"
+
+def analyze_excel_file(file, sheet_name, start_col, names_row, names_col, due_row):
+    """Analyze a single Excel sheet"""
+    try:
+        df = pd.read_excel(file, sheet_name=sheet_name, header=None)
+        
+        # Extract metadata
+        subject = df.iloc[0, 0] if pd.notna(df.iloc[0, 0]) else "غير محدد"
+        level = df.iloc[1, 0] if pd.notna(df.iloc[1, 0]) else "غير محدد"
+        section = df.iloc[1, 1] if pd.notna(df.iloc[1, 1]) else "غير محدد"
+        
+        # Get column indices
+        start_col_idx = col_to_index(start_col)
+        names_col_idx = col_to_index(names_col)
+        
+        results = []
+        
+        # Process each student
+        for idx, row in df.iterrows():
+            if idx < names_row - 1:
+                continue
+                
+            student_name = row.iloc[names_col_idx]
+            
+            if pd.isna(student_name) or student_name == "" or str(student_name).strip() == "":
+                continue
+            
+            # Count assessments
+            total_solved = 0
+            total_assessments = 0
+            unsolved_titles = []
+            
+            for col_idx in range(start_col_idx, len(row)):
+                assessment_title = df.iloc[due_row - 1, col_idx]
+                
+                if pd.notna(assessment_title) and str(assessment_title).strip() != "":
+                    cell_value = row.iloc[col_idx]
+                    
+                    if pd.notna(cell_value):
+                        if isinstance(cell_value, (int, float)):
+                            if cell_value > 0:
+                                total_solved += 1
+                            else:
+                                total_assessments += 1
+                                unsolved_titles.append(str(assessment_title))
+                        elif str(cell_value).strip().lower() in ['تم', 'done', 'x', '✓']:
+                            total_solved += 1
+                        else:
+                            total_assessments += 1
+                            unsolved_titles.append(str(assessment_title))
+                    else:
+                        total_assessments += 1
+                        unsolved_titles.append(str(assessment_title))
+            
+            # Calculate percentage
+            total = total_solved + total_assessments
+            solve_pct = (total_solved / total * 100) if total > 0 else 0
+            
+            # Categorize
+            category, recommendation = categorize_student(solve_pct)
+            
+            results.append({
+                "student_name": str(student_name),
+                "subject": str(subject),
+                "class": str(level),
+                "section": str(section),
+                "total_material_solved": total_solved,
+                "total_assessments": total_assessments,
+                "unsolved_assessment_count": len(unsolved_titles),
+                "unsolved_titles": ", ".join(unsolved_titles) if unsolved_titles else "لا يوجد",
+                "solve_pct": solve_pct,
+                "category": category,
+                "recommendation": recommendation
+            })
+        
+        return results
+    
+    except Exception as e:
+        st.error(f"خطأ في تحليل الورقة {sheet_name}: {str(e)}")
+        return []
+
+def generate_html_report(student_data):
+    """Generate HTML report for a student"""
+    html = f"""
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>تقرير {student_data['student_name']}</title>
+        <style>
+            body {{
+                font-family: 'Arial', sans-serif;
+                direction: rtl;
+                text-align: right;
+                margin: 40px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: #333;
+            }}
+            .container {{
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                padding: 40px;
+                border-radius: 20px;
+                box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+            }}
+            h1 {{
+                color: #667eea;
+                text-align: center;
+                border-bottom: 3px solid #667eea;
+                padding-bottom: 20px;
+            }}
+            .info-box {{
+                background: #f8f9fa;
+                padding: 20px;
+                border-radius: 10px;
+                margin: 20px 0;
+            }}
+            .metric {{
+                display: inline-block;
+                margin: 10px 20px;
+                padding: 15px;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }}
+            .category {{
+                font-size: 24px;
+                font-weight: bold;
+                text-align: center;
+                padding: 20px;
+                border-radius: 10px;
+                margin: 20px 0;
+            }}
+            .platinum {{ background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; }}
+            .gold {{ background: linear-gradient(135deg, #ffd89b 0%, #19547b 100%); color: white; }}
+            .silver {{ background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333; }}
+            .bronze {{ background: linear-gradient(135deg, #ff9a56 0%, #ff6a88 100%); color: white; }}
+            .needs-improvement {{ background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%); color: white; }}
+            @media print {{
+                body {{ background: white; }}
+                .container {{ box-shadow: none; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📊 تقرير التقييمات الأسبوعية</h1>
+            
+            <div class="info-box">
+                <h2>👤 معلومات الطالب</h2>
+                <p><strong>الاسم:</strong> {student_data['student_name']}</p>
+                <p><strong>المادة:</strong> {student_data['subject']}</p>
+                <p><strong>المستوى:</strong> {student_data['class']}</p>
+                <p><strong>الشعبة:</strong> {student_data['section']}</p>
+            </div>
+            
+            <div class="info-box">
+                <h2>📈 الإحصائيات</h2>
+                <div class="metric">
+                    <strong>✅ منجز:</strong> {student_data['total_material_solved']}
+                </div>
+                <div class="metric">
+                    <strong>⏳ متبقي:</strong> {student_data['total_assessments']}
+                </div>
+                <div class="metric">
+                    <strong>📊 النسبة:</strong> {student_data['solve_pct']:.2f}%
+                </div>
+            </div>
+            
+            <div class="category {'platinum' if student_data['category'] == 'البلاتينية' else 'gold' if student_data['category'] == 'الذهبي' else 'silver' if student_data['category'] == 'الفضي' else 'bronze' if student_data['category'] == 'البرونزي' else 'needs-improvement'}">
+                🏆 {student_data['category']}
+            </div>
+            
+            <div class="info-box">
+                <h2>💡 التوصية</h2>
+                <p style="font-size: 18px;">{student_data['recommendation']}</p>
+            </div>
+            
+            {f'''<div class="info-box">
+                <h2>📝 التقييمات غير المنجزة</h2>
+                <p>{student_data['unsolved_titles']}</p>
+            </div>''' if student_data['unsolved_titles'] != 'لا يوجد' else ''}
+            
+            <p style="text-align: center; color: #999; margin-top: 40px;">
+                تم الإنشاء بتاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+# ================== MAIN APP ==================
+
+st.title("📊 Weekly Assessments Analyzer")
+st.markdown("---")
 
 # Initialize session state
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
-if "uploaded_files" not in st.session_state:
-    st.session_state.uploaded_files = None
 
 # Sidebar
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     
-    # File upload - IMPROVED VERSION
+    # File upload
     st.subheader("📁 تحميل الملفات")
-    
-    # Add clear instructions
-    st.info("👇 اضغط على الزر أدناه لرفع ملفات Excel")
+    st.info("👇 اختر ملفات Excel للتحليل")
     
     uploaded_files = st.file_uploader(
-        "اختر ملفات Excel (.xlsx أو .xls)",
+        "اختر ملفات Excel",
         type=["xlsx", "xls"],
         accept_multiple_files=True,
-        help="يمكنك رفع ملف واحد أو عدة ملفات معاً",
-        key="file_uploader"
+        help="يمكنك رفع ملف واحد أو أكثر"
     )
     
-    # Show upload status
     if uploaded_files:
         st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
-        for file in uploaded_files:
-            st.text(f"📄 {file.name}")
         
-        st.session_state.uploaded_files = uploaded_files
-        
-        # Get sheets from first file for preview
+        # Get sheets from first file
         try:
-            file_path = uploaded_files[0]
-            xls = pd.ExcelFile(file_path)
+            xls = pd.ExcelFile(uploaded_files[0])
             sheets = xls.sheet_names
             
             st.subheader("📋 اختيار الأوراق")
             selected_sheets = st.multiselect(
-                "اختر الأوراق للتحليل",
+                "اختر الأوراق",
                 sheets,
-                default=sheets if len(sheets) <= 3 else sheets[:3],
-                help="يمكنك اختيار ورقة واحدة أو عدة أوراق"
+                default=sheets if len(sheets) <= 3 else sheets[:3]
             )
         except Exception as e:
-            st.error(f"❌ خطأ في قراءة الملف: {e}")
+            st.error(f"خطأ: {e}")
             selected_sheets = []
     else:
-        st.warning("⚠️ لم يتم رفع أي ملفات بعد")
         selected_sheets = []
     
     st.divider()
     
-    # Analysis parameters
+    # Parameters
     st.subheader("🔧 معاملات التحليل")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        start_col = st.text_input(
-            "عمود التقييمات",
-            value="H",
-            max_chars=2,
-            help="عمود بداية التقييمات (H افتراضي)"
-        ).upper()
-        
-        names_row = st.number_input(
-            "صف أسماء الطلاب",
-            value=5,
-            min_value=1,
-            help="صف أسماء الطلاب (5 افتراضي)"
-        )
+        start_col = st.text_input("عمود التقييمات", value="H").upper()
+        names_row = st.number_input("صف الأسماء", value=5, min_value=1)
     
     with col2:
-        names_col = st.text_input(
-            "عمود أسماء الطلاب",
-            value="A",
-            max_chars=2,
-            help="عمود أسماء الطلاب (A افتراضي)"
-        ).upper()
-        
-        due_row = st.number_input(
-            "صف تواريخ الاستحقاق",
-            value=3,
-            min_value=1,
-            help="صف تواريخ الاستحقاق (3 افتراضي)"
-        )
+        names_col = st.text_input("عمود الأسماء", value="A").upper()
+        due_row = st.number_input("صف التواريخ", value=3, min_value=1)
     
     st.divider()
     
-    # Date filter
-    st.subheader("📅 تصفية التواريخ")
-    enable_filter = st.checkbox("تفعيل تصفية النطاق الزمني", value=False)
-    
-    if enable_filter:
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input(
-                "من",
-                value=datetime(2025, 1, 1),
-                help="تاريخ البداية"
-            )
-        with col2:
-            end_date = st.date_input(
-                "إلى",
-                value=datetime(2025, 12, 31),
-                help="تاريخ النهاية"
-            )
-        date_range = (start_date, end_date)
-    else:
-        date_range = None
-    
-    st.divider()
-    
-    # Action button - MORE PROMINENT
-    if uploaded_files and selected_sheets:
-        run_analysis = st.button(
-            "🚀 تشغيل التحليل الآن",
-            use_container_width=True,
-            type="primary"
-        )
-    else:
-        st.button(
-            "🚀 تشغيل التحليل الآن",
-            use_container_width=True,
-            type="primary",
-            disabled=True,
-            help="يرجى رفع الملفات واختيار الأوراق أولاً"
-        )
-        run_analysis = False
+    # Run button
+    run_analysis = st.button(
+        "🚀 تشغيل التحليل",
+        use_container_width=True,
+        type="primary",
+        disabled=not (uploaded_files and selected_sheets)
+    )
 
-# Main content
+# Main area
 if not uploaded_files:
-    # Show prominent upload instructions on main page
-    st.markdown("---")
+    st.info("👈 الرجاء رفع ملفات Excel من الشريط الجانبي")
+    
     st.markdown("""
     ## 🎯 كيفية الاستخدام
     
-    ### الخطوة 1️⃣: رفع الملفات
-    - اذهب إلى القائمة الجانبية على اليسار 👈
-    - اضغط على زر **"Browse files"** أو **"استعراض الملفات"**
-    - اختر ملف Excel واحد أو أكثر (.xlsx أو .xls)
+    1. **ارفع ملفات Excel** من الشريط الجانبي
+    2. **اختر الأوراق** المراد تحليلها
+    3. **اضبط المعاملات** إذا لزم الأمر
+    4. **اضغط على "تشغيل التحليل"**
     
-    ### الخطوة 2️⃣: اختيار الأوراق
-    - بعد رفع الملف، ستظهر قائمة بأوراق العمل
-    - اختر الأوراق التي تريد تحليلها
-    
-    ### الخطوة 3️⃣: تشغيل التحليل
-    - اضبط المعاملات إذا لزم الأمر
-    - اضغط على **"🚀 تشغيل التحليل الآن"**
-    
-    ---
-    
-    ## 📋 متطلبات الملف
-    
-    يجب أن يحتوي ملف Excel على:
-    - ✅ أسماء الطلاب في العمود A (افتراضياً)
-    - ✅ التقييمات تبدأ من العمود H (افتراضياً)
-    - ✅ تواريخ الاستحقاق في الصف 3 (افتراضياً)
-    - ✅ أسماء الطلاب في الصف 5 (افتراضياً)
-    
+    ### 📋 متطلبات الملف
+    - أسماء الطلاب في العمود A
+    - التقييمات تبدأ من العمود H
+    - تواريخ الاستحقاق في الصف 3
     """)
-    
-    # Add a big upload button on main page too
-    st.markdown("### 📤 أو ارفع الملفات هنا مباشرة:")
-    
-    main_uploaded = st.file_uploader(
-        "اسحب الملفات وأفلتها هنا",
-        type=["xlsx", "xls"],
-        accept_multiple_files=True,
-        key="main_uploader"
-    )
-    
-    if main_uploaded:
-        st.session_state.uploaded_files = main_uploaded
-        st.rerun()
 
-elif run_analysis and uploaded_files and selected_sheets:
-    with st.spinner("جاري التحليل... ⏳"):
+elif run_analysis:
+    with st.spinner("جاري التحليل..."):
         try:
-            analyzer = AssessmentAnalyzer(
-                start_col_letter=start_col,
-                names_row=names_row,
-                names_col=names_col,
-                due_row=due_row,
-                date_range=date_range
-            )
+            all_results = []
             
-            results = []
-            progress_bar = st.progress(0)
+            for file in uploaded_files:
+                for sheet in selected_sheets:
+                    results = analyze_excel_file(
+                        file, sheet, start_col, names_row, names_col, due_row
+                    )
+                    all_results.extend(results)
             
-            for idx, uploaded_file in enumerate(uploaded_files):
-                st.text(f"📊 تحليل الملف: {uploaded_file.name}")
-                file_results = analyzer.analyze_file(
-                    uploaded_file,
-                    selected_sheets
-                )
-                results.extend(file_results)
-                progress_bar.progress((idx + 1) / len(uploaded_files))
-            
-            if results:
-                st.session_state.analysis_results = pd.DataFrame(results)
-                st.success(f"✅ تم إكمال التحليل بنجاح! تم تحليل {len(results)} طالب")
+            if all_results:
+                st.session_state.analysis_results = pd.DataFrame(all_results)
+                st.success(f"✅ تم تحليل {len(all_results)} طالب!")
             else:
-                st.warning("⚠️ لم يتم العثور على بيانات للتحليل.")
+                st.warning("⚠️ لم يتم العثور على بيانات")
         
         except Exception as e:
-            st.error(f"❌ خطأ في التحليل: {str(e)}")
+            st.error(f"❌ خطأ: {str(e)}")
             st.exception(e)
 
 # Display results
 if st.session_state.analysis_results is not None:
     df = st.session_state.analysis_results
     
-    # Summary statistics
-    st.markdown("## 📈 الإحصائيات العامة")
+    # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.metric("👥 عدد الطلاب", len(df))
+        st.metric("👥 الطلاب", len(df))
     with col2:
-        avg_solve = df["solve_pct"].mean()
-        st.metric("📈 متوسط النسبة", f"{avg_solve:.1f}%")
+        st.metric("📈 المتوسط", f"{df['solve_pct'].mean():.1f}%")
     with col3:
-        platinum = len(df[df["category"] == "البلاتينية"])
-        st.metric("🏆 البلاتينية", platinum)
+        st.metric("🏆 البلاتينية", len(df[df['category'] == 'البلاتينية']))
     with col4:
-        needs_improvement = len(df[df["category"] == "تحتاج إلى تحسين"])
-        st.metric("⚠️ يحتاج تحسين", needs_improvement)
+        st.metric("⚠️ يحتاج تحسين", len(df[df['category'] == 'تحتاج إلى تحسين']))
     
     st.divider()
     
-    # Summary table
-    st.subheader("📊 جدول الملخص")
+    # Data table
+    st.subheader("📊 البيانات")
     
-    # Prepare display columns with Arabic headers
-    display_df = df[[
-        "student_name", "subject", "class", "section", "total_material_solved", 
-        "total_assessments", "unsolved_assessment_count", "unsolved_titles", 
-        "solve_pct", "category", "recommendation"
-    ]].copy()
+    display_df = df.copy()
+    display_df['solve_pct'] = display_df['solve_pct'].apply(lambda x: f"{x:.2f}%")
     
-    # Rename columns to Arabic
-    arabic_headers = {
-        "student_name": "اسم الطالب",
-        "subject": "المادة",
-        "class": "المستوى",
-        "section": "الشعبة",
-        "total_material_solved": "تقييمات منجزة",
-        "total_assessments": "تقييمات متبقية",
-        "unsolved_assessment_count": "عدد غير منجزة",
-        "unsolved_titles": "عناوين غير منجزة",
-        "solve_pct": "نسبة الإنجاز %",
-        "category": "الفئة",
-        "recommendation": "التوصية"
-    }
-    
-    display_df = display_df.rename(columns=arabic_headers)
-    
-    # Format solve_pct for display
-    display_df["نسبة الإنجاز %"] = display_df["نسبة الإنجاز %"].apply(lambda x: f"{x:.2f}%")
-    
-    # Display with RTL support
-    st.dataframe(display_df, use_container_width=True, height=400, hide_index=True)
+    st.dataframe(display_df, use_container_width=True, height=400)
     
     # Download CSV
     csv = df.to_csv(index=False, encoding="utf-8-sig")
     st.download_button(
-        label="📥 تحميل ملخص CSV",
-        data=csv,
-        file_name=f"assessment_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-        use_container_width=True
+        "📥 تحميل CSV",
+        csv,
+        f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        "text/csv"
     )
     
     st.divider()
     
     # Charts
-    st.subheader("📈 الرسوم البيانية")
-    
-    col1, col2 = st.columns(2)
-    
-    # Category distribution
-    with col1:
-        st.text("توزيع الفئات")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        category_counts = df["category"].value_counts()
-        
-        # Color mapping for Arabic categories
-        color_map = {
-            "البلاتينية": "#f093fb",
-            "الذهبي": "#ffd89b",
-            "الفضي": "#a8edea",
-            "البرونزي": "#ff9a56",
-            "تحتاج إلى تحسين": "#ff6b6b"
-        }
-        colors = [color_map.get(cat, "#999999") for cat in category_counts.index]
-        
-        category_counts.plot(kind="bar", ax=ax, color=colors, edgecolor="black", linewidth=1.5)
-        ax.set_xlabel("الفئة", fontsize=12, fontweight="bold")
-        ax.set_ylabel("عدد الطلاب", fontsize=12, fontweight="bold")
-        ax.set_title("توزيع الفئات", fontsize=14, fontweight="bold")
-        ax.tick_params(axis="x", rotation=45)
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
-    
-    # Solve percentage histogram
-    with col2:
-        st.text("توزيع نسبة الإنجاز")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.hist(df["solve_pct"], bins=15, color="#667eea", edgecolor="black", linewidth=1.5)
-        ax.set_xlabel("نسبة الإنجاز (%)", fontsize=12, fontweight="bold")
-        ax.set_ylabel("عدد الطلاب", fontsize=12, fontweight="bold")
-        ax.set_title("توزيع نسبة الإنجاز", fontsize=14, fontweight="bold")
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
-    
-    # Top 10 remaining assessments
-    st.text("أكثر 10 طلاب لديهم تقييمات متبقية")
-    fig, ax = plt.subplots(figsize=(12, 6))
-    top_remaining = df.nlargest(10, "total_assessments")[["student_name", "total_assessments"]].copy()
-    top_remaining = top_remaining.sort_values("total_assessments")
-    
-    ax.barh(range(len(top_remaining)), top_remaining["total_assessments"].values, color="#FF9800", edgecolor="black", linewidth=1.5)
-    ax.set_yticks(range(len(top_remaining)))
-    ax.set_yticklabels(top_remaining["student_name"].values, fontsize=10)
-    ax.set_xlabel("التقييمات المتبقية", fontsize=12, fontweight="bold")
-    ax.set_title("أكثر الطلاب لديهم تقييمات متبقية", fontsize=14, fontweight="bold")
-    ax.grid(axis="x", alpha=0.3)
-    plt.tight_layout()
-    st.pyplot(fig, use_container_width=True)
-    
-    # Additional statistics
-    st.subheader("📊 إحصائيات إضافية")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        subjects = df["subject"].nunique()
-        st.metric("📚 عدد المواد", subjects)
-    
-    with col2:
-        avg_assessments = df["total_material_solved"].mean()
-        st.metric("✅ متوسط التقييمات المنجزة", f"{avg_assessments:.1f}")
-    
-    with col3:
-        zero_solved = len(df[df["total_material_solved"] == 0])
-        st.metric("⚠️ طلاب لم ينجزوا شيئاً", zero_solved)
-    
-    st.divider()
-    
-    # Advanced filters
-    st.subheader("🔍 تصفية متقدمة")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        selected_subjects = st.multiselect(
-            "اختر المواد",
-            df["subject"].unique(),
-            default=df["subject"].unique()
-        )
-    
-    with col2:
-        selected_categories = st.multiselect(
-            "اختر الفئات",
-            ["البلاتينية", "الذهبي", "الفضي", "البرونزي", "تحتاج إلى تحسين"],
-            default=["البلاتينية", "الذهبي", "الفضي", "البرونزي", "تحتاج إلى تحسين"]
-        )
-    
-    with col3:
-        min_solve_pct = st.slider(
-            "الحد الأدنى لنسبة الإنجاز",
-            min_value=0.0,
-            max_value=100.0,
-            value=0.0,
-            step=5.0
-        )
-    
-    # Apply filters
-    filtered_df = df[
-        (df["subject"].isin(selected_subjects)) &
-        (df["category"].isin(selected_categories)) &
-        (df["solve_pct"] >= min_solve_pct)
-    ]
-    
-    st.info(f"📋 تم العثور على {len(filtered_df)} من أصل {len(df)} طالب")
-    
-    st.divider()
-    
-    # Subject Analysis & Reports
-    st.subheader("📑 التقارير الوصفية حسب المادة")
-    
-    # Group by subject
-    subjects = df['subject'].unique()
-    
     col1, col2 = st.columns(2)
     
     with col1:
-        selected_subject_report = st.selectbox(
-            "اختر المادة للتقرير الوصفي",
-            subjects,
-            key="subject_report"
-        )
+        st.subheader("توزيع الفئات")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+        category_counts = df['category'].value_counts()
+        colors = {'البلاتينية': '#f093fb', 'الذهبي': '#ffd89b', 
+                  'الفضي': '#a8edea', 'البرونزي': '#ff9a56', 
+                  'تحتاج إلى تحسين': '#ff6b6b'}
+        
+        bar_colors = [colors.get(cat, '#999') for cat in category_counts.index]
+        category_counts.plot(kind='bar', ax=ax, color=bar_colors)
+        
+        ax.set_xlabel("الفئة")
+        ax.set_ylabel("العدد")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
     
     with col2:
-        report_type = st.radio(
-            "نوع التقرير",
-            ["عرض على الشاشة", "تحميل نصي", "إرسال بريد إلكتروني"],
-            horizontal=True
-        )
+        st.subheader("توزيع النسب")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+        ax.hist(df['solve_pct'], bins=15, color='#667eea', edgecolor='black')
+        ax.set_xlabel("نسبة الإنجاز %")
+        ax.set_ylabel("عدد الطلاب")
+        st.pyplot(fig)
     
-    if st.button("📊 إنشاء التقرير الوصفي", use_container_width=True):
-        # Filter data for selected subject
-        subject_data = df[df['subject'] == selected_subject_report]
-        
-        # Group by level and section
-        grouped = subject_data.groupby(['class', 'section'])
-        
-        report_generator = SubjectReportGenerator()
-        
-        for (level, section), group_data in grouped:
-            students_list = group_data.to_dict('records')
-            
-            # Generate report
-            report = report_generator.generate_subject_report(
-                selected_subject_report,
-                str(level),
-                str(section),
-                students_list
-            )
-            
-            # Identify inactive students
-            inactive = group_data[group_data['solve_pct'] < 70].to_dict('records')
-            critical = group_data[group_data['solve_pct'] < 50].to_dict('records')
-            
-            if report_type == "عرض على الشاشة":
-                st.text_area(
-                    f"تقرير {selected_subject_report} - {level}/{section}",
-                    value=report,
-                    height=400,
-                    disabled=True
-                )
-            
-            elif report_type == "تحميل نصي":
+    st.divider()
+    
+    # Generate HTML reports
+    st.subheader("📄 تقارير HTML")
+    
+    if st.button("🔄 إنشاء تقارير HTML", use_container_width=True):
+        with st.spinner(f"جاري إنشاء {len(df)} تقرير..."):
+            try:
+                zip_buffer = io.BytesIO()
+                
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for _, row in df.iterrows():
+                        html = generate_html_report(row)
+                        filename = f"{row['subject']}_{row['student_name']}.html"
+                        zf.writestr(filename, html.encode('utf-8'))
+                
+                zip_buffer.seek(0)
+                
                 st.download_button(
-                    label=f"📥 تحميل تقرير {selected_subject_report}_{level}_{section}",
-                    data=report.encode('utf-8'),
-                    file_name=f"report_{selected_subject_report}_{level}_{section}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain; charset=utf-8",
-                    use_container_width=True
+                    f"📦 تحميل {len(df)} تقرير",
+                    zip_buffer.getvalue(),
+                    f"reports_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    "application/zip"
                 )
+                
+                st.success("✅ تم إنشاء التقارير!")
             
-            elif report_type == "إرسال بريد إلكتروني":
-                st.warning("⚙️ إعدادات البريد الإلكتروني")
-                
-                email_col1, email_col2 = st.columns(2)
-                
-                with email_col1:
-                    teacher_email = st.text_input(
-                        "بريد المعلم الإلكتروني",
-                        placeholder="teacher@example.com"
-                    )
-                    smtp_server = st.text_input(
-                        "خادم SMTP",
-                        value="smtp.gmail.com"
-                    )
-                
-                with email_col2:
-                    sender_email = st.text_input(
-                        "البريد المرسل",
-                        placeholder="your-email@gmail.com"
-                    )
-                    sender_password = st.text_input(
-                        "كلمة المرور (أو App Password)",
-                        type="password"
-                    )
-                
-                if st.button("✉️ إرسال البريد", use_container_width=True):
-                    if not (teacher_email and sender_email and sender_password):
-                        st.error("❌ يرجى ملء جميع بيانات البريد")
-                    else:
-                        try:
-                            email_sender = EmailSender(
-                                smtp_server=smtp_server,
-                                smtp_port=587,
-                                sender_email=sender_email,
-                                sender_password=sender_password
-                            )
-                            
-                            success, message = email_sender.send_subject_report(
-                                teacher_email=teacher_email,
-                                subject=selected_subject_report,
-                                level=str(level),
-                                section=str(section),
-                                report_content=report,
-                                inactive_students=inactive,
-                                critical_students=critical
-                            )
-                            
-                            if success:
-                                st.success(f"✅ {message}")
-                                st.info(f"تم إرسال التقرير إلى {teacher_email}")
-                            else:
-                                st.error(f"❌ {message}")
-                        
-                        except Exception as e:
-                            st.error(f"❌ خطأ: {str(e)}")
-                            st.info("💡 تأكد من:\n• استخدام Gmail App Password (وليس كلمة المرور العادية)\n• تفعيل المصادقة الثنائية\n• السماح للتطبيقات الأقل أماناً")
-    
-    st.divider()
-    
-    # Summary by Subject
-    st.subheader("📊 ملخص حسب المادة")
-    
-    subject_summary = []
-    
-    for subject in subjects:
-        subject_df = df[df['subject'] == subject]
-        
-        summary_item = {
-            "المادة": subject,
-            "عدد الطلاب": len(subject_df),
-            "متوسط النسبة %": f"{subject_df['solve_pct'].mean():.2f}",
-            "الفئة الأولى": len(subject_df[subject_df['solve_pct'] >= 90]),
-            "الفئة الثانية": len(subject_df[subject_df['solve_pct'] >= 70]),
-            "غير فاعلين": len(subject_df[subject_df['solve_pct'] < 70]),
-            "في الخطر": len(subject_df[subject_df['solve_pct'] < 50])
-        }
-        subject_summary.append(summary_item)
-    
-    summary_df = pd.DataFrame(subject_summary)
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
-    # Export subject summary
-    st.download_button(
-        label="📥 تحميل ملخص المواد (CSV)",
-        data=summary_df.to_csv(index=False, encoding="utf-8-sig"),
-        file_name=f"subject_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
-    
-    st.divider()
-    
-    # HTML Reports Generation
-    st.subheader("📄 تقارير الطلاب")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        html_report_type = st.radio(
-            "نوع التقرير",
-            ["جميع الطلاب", "الطلاب المصفاة", "فئة محددة"],
-            horizontal=True,
-            key="html_report_type"
-        )
-    
-    with col2:
-        if html_report_type == "فئة محددة":
-            selected_category = st.selectbox(
-                "اختر الفئة",
-                ["البلاتينية", "الذهبي", "الفضي", "البرونزي", "تحتاج إلى تحسين"]
-            )
-        else:
-            selected_category = None
-    
-    # Determine which data to use for reports
-    if html_report_type == "جميع الطلاب":
-        report_data = df
-    elif html_report_type == "الطلاب المصفاة":
-        report_data = filtered_df
-    else:  # فئة محددة
-        report_data = df[df["category"] == selected_category]
-    
-    if st.button("🔄 إنشاء تقارير HTML للطلاب (قابلة للطباعة PDF)", use_container_width=True):
-        if len(report_data) == 0:
-            st.warning("⚠️ لا توجد بيانات للتقرير")
-        else:
-            with st.spinner(f"جاري إنشاء {len(report_data)} تقرير..."):
-                try:
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                        for _, row in report_data.iterrows():
-                            html_content = generate_html_report(row)
-                            filename = f"{row['subject']}_{row['student_name']}.html"
-                            zf.writestr(filename, html_content.encode("utf-8"))
-                    
-                    zip_buffer.seek(0)
-                    st.download_button(
-                        label=f"📦 تحميل {len(report_data)} تقرير",
-                        data=zip_buffer.getvalue(),
-                        file_name=f"student_reports_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                        mime="application/zip",
-                        use_container_width=True
-                    )
-                    st.success(f"✅ تم إنشاء {len(report_data)} تقرير بنجاح!")
-                
-                except Exception as e:
-                    st.error(f"❌ خطأ في إنشاء التقارير: {str(e)}")
-
-elif st.session_state.uploaded_files and not selected_sheets:
-    st.info("📋 الرجاء اختيار أوراق العمل من القائمة الجانبية")
-elif st.session_state.uploaded_files and selected_sheets:
-    st.info("👉 انقر على 'تشغيل التحليل الآن' في القائمة الجانبية للبدء")
+            except Exception as e:
+                st.error(f"❌ خطأ: {str(e)}")
