@@ -124,8 +124,9 @@ def analyze_excel_file(file, sheet_name):
 
 def create_pivot_table(df):
     """Create pivot table with subjects as multiple columns"""
-    # Get unique students
-    students_base = df[['student_name', 'level', 'section']].drop_duplicates().reset_index(drop=True)
+    # Get unique students (remove duplicates based on name, level, section)
+    students_base = df[['student_name', 'level', 'section']].drop_duplicates()
+    students_base = students_base.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
     
     # Start with base columns
     result = students_base.copy()
@@ -150,6 +151,10 @@ def create_pivot_table(df):
         
         # Prepare subject data with renamed columns
         subject_cols = subject_df[['key', 'total_count', 'completed_count', 'pending_titles', 'solve_pct']].copy()
+        
+        # Remove duplicates - keep first occurrence only
+        subject_cols = subject_cols.drop_duplicates(subset=['key'], keep='first')
+        
         subject_cols.columns = [
             'key',
             f"{subject} - إجمالي التقييمات",
@@ -164,9 +169,14 @@ def create_pivot_table(df):
     # Remove the key column
     result = result.drop(columns=['key'])
     
-    # Calculate overall average percentage
+    # Remove rows where ALL subject data is missing
+    # A row is considered empty if all percentage columns are NaN
     pct_cols = [col for col in result.columns if 'نسبة الإنجاز %' in col]
     if pct_cols:
+        # Keep only rows that have at least one non-null percentage value
+        result = result[result[pct_cols].notna().any(axis=1)]
+        
+        # Calculate overall average percentage
         result['نسبة حل التقييمات في جميع المواد'] = result[pct_cols].mean(axis=1)
     
     # Rename base columns to Arabic
@@ -175,6 +185,9 @@ def create_pivot_table(df):
         'level': 'الصف',
         'section': 'الشعبة'
     })
+    
+    # Reset index
+    result = result.reset_index(drop=True)
     
     return result
 
@@ -350,4 +363,328 @@ if st.session_state.pivot_table is not None:
             use_container_width=True
         )
     
-    st.success("✅ التحليل اكتمل بنجاح!")
+def generate_student_html_report(student_row, all_subjects_data):
+    """Generate individual student HTML report"""
+    
+    student_name = student_row['اسم الطالب']
+    level = student_row['الصف']
+    section = student_row['الشعبة']
+    
+    # Calculate statistics
+    total_assessments = 0
+    total_completed = 0
+    
+    subjects_html = ""
+    
+    for subject in sorted(set([col.split(' - ')[0] for col in student_row.index if ' - إجمالي' in col])):
+        total_col = f"{subject} - إجمالي التقييمات"
+        completed_col = f"{subject} - المنجز"
+        pending_col = f"{subject} - عناوين التقييمات المتبقية"
+        
+        if total_col in student_row and pd.notna(student_row[total_col]):
+            total = int(student_row[total_col])
+            completed = int(student_row[completed_col]) if pd.notna(student_row[completed_col]) else 0
+            pending_titles = str(student_row[pending_col]) if pd.notna(student_row[pending_col]) else "-"
+            
+            total_assessments += total
+            total_completed += completed
+            
+            subjects_html += f"""
+            <tr>
+                <td style="text-align: right; padding: 12px; border: 1px solid #ddd;">{subject}</td>
+                <td style="text-align: center; padding: 12px; border: 1px solid #ddd;">{total}</td>
+                <td style="text-align: center; padding: 12px; border: 1px solid #ddd;">{completed}</td>
+                <td style="text-align: right; padding: 12px; border: 1px solid #ddd;">{pending_titles}</td>
+            </tr>
+            """
+    
+    # Calculate percentage
+    solve_pct = (total_completed / total_assessments * 100) if total_assessments > 0 else 0
+    remaining = total_assessments - total_completed
+    
+    # Generate recommendation
+    if solve_pct >= 90:
+        recommendation = "أداء ممتاز! استمر في التميز 🌟"
+        category_color = "#4CAF50"
+    elif solve_pct >= 80:
+        recommendation = "أداء جيد جداً، حافظ على مستواك 👍"
+        category_color = "#8BC34A"
+    elif solve_pct >= 70:
+        recommendation = "أداء جيد، يمكنك التحسن أكثر ✓"
+        category_color = "#FFC107"
+    elif solve_pct >= 60:
+        recommendation = "أداء مقبول، تحتاج لمزيد من الجهد ⚠️"
+        category_color = "#FF9800"
+    else:
+        recommendation = "يرجى الاهتمام أكثر بالتقييمات ومراجعة المواد"
+        category_color = "#F44336"
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>تقرير أداء الطالب - {student_name}</title>
+        <style>
+            @page {{
+                size: A4;
+                margin: 15mm;
+            }}
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                direction: rtl;
+                text-align: right;
+                margin: 0;
+                padding: 20px;
+                background: #f5f5f5;
+            }}
+            .container {{
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                padding: 30px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }}
+            .header {{
+                text-align: center;
+                border-bottom: 3px solid #1976D2;
+                padding-bottom: 20px;
+                margin-bottom: 30px;
+            }}
+            .header h1 {{
+                color: #1976D2;
+                margin: 0;
+                font-size: 28px;
+                text-decoration: underline;
+            }}
+            .student-info {{
+                background: #E3F2FD;
+                padding: 20px;
+                border-radius: 8px;
+                margin-bottom: 25px;
+            }}
+            .student-info h2 {{
+                color: #1565C0;
+                margin-top: 0;
+                font-size: 20px;
+            }}
+            .info-row {{
+                margin: 10px 0;
+                font-size: 16px;
+            }}
+            .info-label {{
+                font-weight: bold;
+                color: #333;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+            }}
+            th {{
+                background: #1976D2;
+                color: white;
+                padding: 12px;
+                text-align: center;
+                border: 1px solid #1565C0;
+                font-size: 16px;
+            }}
+            td {{
+                padding: 12px;
+                border: 1px solid #ddd;
+            }}
+            tr:nth-child(even) {{
+                background-color: #f9f9f9;
+            }}
+            .stats-section {{
+                background: #FFF3E0;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 25px 0;
+            }}
+            .stats-section h3 {{
+                color: #E65100;
+                margin-top: 0;
+            }}
+            .stats-grid {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 15px;
+                margin-top: 15px;
+            }}
+            .stat-box {{
+                background: white;
+                padding: 15px;
+                border-radius: 8px;
+                text-align: center;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }}
+            .stat-value {{
+                font-size: 32px;
+                font-weight: bold;
+                color: {category_color};
+                margin: 5px 0;
+            }}
+            .stat-label {{
+                font-size: 14px;
+                color: #666;
+            }}
+            .recommendation {{
+                background: {category_color};
+                color: white;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 25px 0;
+                text-align: center;
+                font-size: 18px;
+                font-weight: bold;
+            }}
+            .footer {{
+                margin-top: 40px;
+                border-top: 2px solid #ddd;
+                padding-top: 20px;
+            }}
+            .footer-section {{
+                margin: 15px 0;
+                font-size: 14px;
+            }}
+            .qr-section {{
+                display: flex;
+                justify-content: space-around;
+                margin: 20px 0;
+                flex-wrap: wrap;
+            }}
+            .qr-item {{
+                text-align: center;
+                margin: 10px;
+            }}
+            .qr-placeholder {{
+                width: 100px;
+                height: 100px;
+                background: #E0E0E0;
+                border: 2px solid #999;
+                display: inline-block;
+                margin: 10px;
+            }}
+            .signatures {{
+                margin-top: 30px;
+                text-align: right;
+            }}
+            .signature-line {{
+                margin: 10px 0;
+                font-size: 14px;
+            }}
+            @media print {{
+                body {{
+                    background: white;
+                    padding: 0;
+                }}
+                .container {{
+                    box-shadow: none;
+                    max-width: 100%;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <h1>📊 تقرير أداء الطالب - نظام قطر للتعليم</h1>
+            </div>
+            
+            <!-- Student Info -->
+            <div class="student-info">
+                <h2>معلومات الطالب</h2>
+                <div class="info-row">
+                    <span class="info-label">اسم الطالب:</span> {student_name}
+                </div>
+                <div class="info-row">
+                    <span class="info-label">الصف:</span> {level}
+                    &nbsp;&nbsp;&nbsp;
+                    <span class="info-label">الشعبة:</span> {section}
+                </div>
+            </div>
+            
+            <!-- Subjects Table -->
+            <table>
+                <thead>
+                    <tr>
+                        <th>المادة</th>
+                        <th>عدد التقييمات الإجمالي</th>
+                        <th>عدد التقييمات المنجزة</th>
+                        <th>عنوان التقييمات المتبقية</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {subjects_html}
+                </tbody>
+            </table>
+            
+            <!-- Statistics -->
+            <div class="stats-section">
+                <h3>الإحصائيات</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">منجز</div>
+                        <div class="stat-value">{total_completed}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">متبقي</div>
+                        <div class="stat-value">{remaining}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">نسبة حل التقييمات</div>
+                        <div class="stat-value">{solve_pct:.1f}%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recommendation -->
+            <div class="recommendation">
+                توصية منسق المشاريع: {recommendation}
+            </div>
+            
+            <!-- Footer -->
+            <div class="footer">
+                <div class="footer-section">
+                    <strong>روابط مهمة:</strong>
+                    <ul style="margin: 10px 0;">
+                        <li>رابط نظام قطر للتعليم</li>
+                        <li>موقع استعادة كلمة المرور</li>
+                        <li>قناة قطر للتعليم على نظام قطر للتعليم</li>
+                    </ul>
+                </div>
+                
+                <div class="qr-section">
+                    <div class="qr-item">
+                        <div class="qr-placeholder"></div>
+                        <div>نظام قطر للتعليم</div>
+                    </div>
+                    <div class="qr-item">
+                        <div class="qr-placeholder"></div>
+                        <div>استعادة كلمة المرور</div>
+                    </div>
+                    <div class="qr-item">
+                        <div class="qr-placeholder"></div>
+                        <div>قناة قطر للتعليم</div>
+                    </div>
+                </div>
+                
+                <div class="signatures">
+                    <div class="signature-line">منسق المشاريع/ سحر عثمان</div>
+                    <div class="signature-line">النائب الأكاديمي/ مريم القضع &nbsp;&nbsp;&nbsp; النائب الإداري/ دلال الفهيدة</div>
+                    <div class="signature-line">مدير المدرسة/ منيرة الهاجري</div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 30px; color: #999; font-size: 12px;">
+                    تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d')}
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html
