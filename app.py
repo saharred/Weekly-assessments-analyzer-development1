@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -15,7 +16,7 @@ st.set_page_config(
 )
 
 # ========= ثيم عنّابي/أبيض (CSS) =========
-PRIMARY = "#8A1538"  # عنّابي قطر
+PRIMARY = "#8A1538"      # عنّابي قطر
 PRIMARY_DARK = "#6b0f2b"
 ACCENT = "#D9B3C2"
 BG_SOFT = "#FBF9FA"
@@ -27,66 +28,22 @@ st.markdown(
     html, body, [class*="css"] {{
       font-family: "Tajawal", "Cairo", "DejaVu Sans", Arial, sans-serif !important;
     }}
-    /* رأس الصفحة والفواصل */
-    h1, h2, h3, h4 {{
-      color: {PRIMARY} !important;
-    }}
-    .block-container {{
-      padding-top: 1.2rem;
-      padding-bottom: 2rem;
-      background: {BG_SOFT};
-    }}
-    /* أزرار */
+    h1, h2, h3, h4 {{ color: {PRIMARY} !important; }}
+    .block-container {{ padding-top: 1.2rem; padding-bottom: 2rem; background: {BG_SOFT}; }}
     .stButton>button {{
-      background: {PRIMARY};
-      color: white;
-      border-radius: 10px;
-      border: 1px solid {PRIMARY_DARK};
+      background: {PRIMARY}; color: white; border-radius: 10px; border: 1px solid {PRIMARY_DARK};
     }}
-    .stButton>button:hover {{
-      background: {PRIMARY_DARK};
-      color: #fff;
-      border-color: {PRIMARY_DARK};
-    }}
-    /* الجداول */
+    .stButton>button:hover {{ background: {PRIMARY_DARK}; color: #fff; border-color: {PRIMARY_DARK}; }}
     thead tr th {{
-      background-color: {PRIMARY} !important;
-      color: #fff !important;
-      font-weight: 700 !important;
-      border: 1px solid {PRIMARY_DARK} !important;
+      background-color: {PRIMARY} !important; color: #fff !important; font-weight: 700 !important; border: 1px solid {PRIMARY_DARK} !important;
     }}
-    tbody tr td {{
-      border: 1px solid #eee !important;
-    }}
-    /* بطاقات */
-    .card {{
-      background: {CARD_BG};
-      border: 1px solid #eee;
-      border-radius: 14px;
-      padding: 16px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-    }}
-    /* شارة عنابية */
+    tbody tr td {{ border: 1px solid #eee !important; }}
+    .card {{ background: {CARD_BG}; border: 1px solid #eee; border-radius: 14px; padding: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }}
     .chip {{
-      display:inline-block; 
-      padding:6px 12px; 
-      margin:4px 6px; 
-      border-radius: 999px; 
-      background:#fff; 
-      color:{PRIMARY}; 
-      border:1px solid {PRIMARY}; 
-      font-weight:600; 
-      font-size:13px;
+      display:inline-block; padding:6px 12px; margin:4px 6px; border-radius: 999px; background:#fff; color:{PRIMARY};
+      border:1px solid {PRIMARY}; font-weight:600; font-size:13px;
     }}
-    /* شريط نسبة الإنجاز */
-    .badge-overall {{
-      background:{PRIMARY};
-      color:#fff;
-      padding:8px 12px;
-      border-radius:999px;
-      display:inline-block;
-      font-weight:700;
-    }}
+    .badge-overall {{ background:{PRIMARY}; color:#fff; padding:8px 12px; border-radius:999px; display:inline-block; font-weight:700; }}
     </style>
     """,
     unsafe_allow_html=True
@@ -112,35 +69,33 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 def normalize_ar_name(s: str) -> str:
     """
-    تطبيع أسماء الطلاب لمنع التكرار:
-    - إزالة التطويل (ـ) والمدّ.
-    - توحيد الألف (أ/إ/آ -> ا).
-    - إزالة المسافات الزائدة والرموز غير المفيدة.
+    تطبيع قوي للأسماء لمنع التكرار داخل/بين الأوراق:
+    - إزالة محارف الاتجاه والخفية و NBSP
+    - توحيد الألف (أ/إ/آ/ٱ -> ا) والألف المقصورة (ى -> ي)
+    - إزالة التطويل والتشكيل والرموز غير الضرورية
+    - طيّ المسافات إلى مسافة واحدة
     """
     if s is None:
         return ""
     s = str(s)
-    # إزالة التطويل
+    s = s.replace("\u00A0", " ")
+    s = re.sub(r'[\u200e\u200f\u202a-\u202e\u2066-\u2069]', '', s)
     s = s.replace("ـ", "")
-    # توحيد الألف
     s = re.sub(r"[إأآٱ]", "ا", s)
-    # إزالة التشكيل البسيط
-    s = re.sub(r"[ًٌٍَُِّْـ]", "", s)
-    # إزالة مسافات مضاعفة
+    s = s.replace("ى", "ي")
+    s = re.sub(r"[ًٌٍَُِّْ]", "", s)
+    s = re.sub(r"[^\w\s\u0600-\u06FF]", " ", s)
     s = " ".join(s.split())
     return s.strip()
 
 def parse_sheet_name(sheet_name: str):
-    """استخراج المادة/الصف/الشعبة من اسم الورقة"""
+    """استخراج المادة/الصف/الشعبة من اسم الورقة (إن وُجدت)."""
     parts = sheet_name.strip().split()
-    level, section = "", ""
-    subject_parts = []
+    level, section, subject_parts = "", "", []
     for part in parts:
         if part.isdigit() or (part.startswith('0') and len(part) <= 2):
-            if not level:
-                level = part
-            else:
-                section = part
+            if not level: level = part
+            else: section = part
         else:
             subject_parts.append(part)
     subject = " ".join(subject_parts) if subject_parts else sheet_name
@@ -149,57 +104,55 @@ def parse_sheet_name(sheet_name: str):
 def analyze_excel_file(file, sheet_name):
     """
     تحليل ورقة واحدة — منطق العد كما هو:
-    - نعد M فقط كـ (غير منجز)،
+    - نعد M فقط كـ (غير منجز)
     - completed_count = total_assessments - m_count
+    - لا نحفظ عناوين التقييمات المتبقية
+    - منع تكرار الاسم داخل نفس الشيت (seen_names)
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
 
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
-
         if len(df) > 1:
-            level_from_excel = str(df.iloc[1, 1]).strip() if pd.notna(df.iloc[1, 1]) else ""
+            level_from_excel   = str(df.iloc[1, 1]).strip() if pd.notna(df.iloc[1, 1]) else ""
             section_from_excel = str(df.iloc[1, 2]).strip() if pd.notna(df.iloc[1, 2]) else ""
-            level = level_from_excel if level_from_excel and level_from_excel != 'nan' else level_from_name
+            level   = level_from_excel   if level_from_excel   and level_from_excel   != 'nan' else level_from_name
             section = section_from_excel if section_from_excel and section_from_excel != 'nan' else section_from_name
         else:
-            level = level_from_name
-            section = section_from_name
+            level, section = level_from_name, section_from_name
 
-        # عناوين التقييمات من الصف 1 (index 0) بدءًا من العمود H (index 7)
-        assessment_titles = []
+        # عدد التقييمات = عدد العناوين غير الفارغة في الصف 0 ابتداءً من العمود H (index 7)
+        total_assessments = 0
         for col_idx in range(7, df.shape[1]):
             title = df.iloc[0, col_idx]
             if pd.notna(title) and str(title).strip():
-                assessment_titles.append(str(title).strip())
+                total_assessments += 1
 
-        total_assessments = len(assessment_titles)
-        results = []
+        results, seen_names = [], set()
 
         # الطلاب من الصف 5 (index 4)
         for idx in range(4, len(df)):
-            student_name = df.iloc[idx, 0]
-            if pd.isna(student_name) or str(student_name).strip() == "":
+            raw_name = df.iloc[idx, 0]
+            if pd.isna(raw_name) or str(raw_name).strip() == "":
                 continue
 
-            # تطبيع الاسم لمنع التكرار
-            student_name_clean = normalize_ar_name(student_name)
+            student_name_clean = normalize_ar_name(raw_name)
+            if not student_name_clean or student_name_clean in seen_names:
+                continue
+            seen_names.add(student_name_clean)
 
-            # --- منطقك الأصلي ---
+            # العد (M فقط غير منجز)
             m_count = 0
-            pending_titles = []
-
-            for i, col_idx in enumerate(range(7, 7 + total_assessments)):
-                if col_idx < df.shape[1]:
-                    cell_value = df.iloc[idx, col_idx]
-                    if pd.notna(cell_value):
-                        if str(cell_value).strip().upper() == 'M':
-                            m_count += 1
-                            if i < len(assessment_titles):
-                                pending_titles.append(assessment_titles[i])
+            for i in range(total_assessments):
+                col_idx = 7 + i
+                if col_idx >= df.shape[1]:
+                    break
+                cell_value = df.iloc[idx, col_idx]
+                if pd.notna(cell_value) and str(cell_value).strip().upper() == 'M':
+                    m_count += 1
 
             completed_count = total_assessments - m_count
-            solve_pct = (completed_count / total_assessments) * 100 if total_assessments > 0 else 0.0
+            solve_pct = (completed_count / total_assessments * 100) if total_assessments > 0 else 0.0
 
             results.append({
                 "student_name": student_name_clean,
@@ -208,8 +161,7 @@ def analyze_excel_file(file, sheet_name):
                 "section": str(section).strip(),
                 "solve_pct": solve_pct,
                 "completed_count": completed_count,
-                "total_count": total_assessments,
-                "pending_titles": ", ".join(pending_titles) if pending_titles else ""
+                "total_count": total_assessments
             })
 
         return results
@@ -219,79 +171,81 @@ def analyze_excel_file(file, sheet_name):
         return []
 
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Pivot: صف واحد لكل طالب بلا تكرار (بعد تطبيع الاسم)"""
-    # تأكيد التطبيع لو جاءت بيانات خارجية
+    """
+    جدول محوري بصف واحد لكل طالب عبر جميع المواد.
+    - ندمج على أساس student_name فقط (لحل مشكلة اختلاف الملف/الورقة).
+    - نختار الصف/الشعبة الأكثر شيوعًا لكل طالب.
+    - بدون أعمدة عناوين التقييمات المتبقية.
+    """
     df = df.copy()
-    df["student_name"] = df["student_name"].apply(normalize_ar_name)
+    if "student_name" in df.columns:
+        df["student_name"] = df["student_name"].apply(normalize_ar_name)
 
-    df_clean = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
+    df_clean = df.drop_duplicates(subset=["student_name", "subject"], keep="first")
 
-    unique_students = df_clean[['student_name', 'level', 'section']].drop_duplicates()
-    unique_students = unique_students.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
-    result = unique_students.copy()
+    def mode_nonempty(s):
+        s = s.astype(str).str.strip()
+        s = s[s != ""]
+        return s.value_counts().index[0] if not s.value_counts().empty else ""
 
-    subjects = sorted(df_clean['subject'].unique())
+    students_meta = (
+        df_clean.groupby("student_name")
+        .agg(level=("level", mode_nonempty), section=("section", mode_nonempty))
+        .reset_index()
+    )
+
+    result = students_meta.copy()
+
+    subjects = sorted(df_clean["subject"].unique())
     for subject in subjects:
-        subject_df = df_clean[df_clean['subject'] == subject][[
-            'student_name', 'level', 'section',
-            'total_count', 'completed_count', 'pending_titles', 'solve_pct'
-        ]].copy()
+        subject_df = (
+            df_clean[df_clean["subject"] == subject][
+                ["student_name", "total_count", "completed_count", "solve_pct"]
+            ]
+            .drop_duplicates(subset=["student_name"], keep="first")
+            .rename(
+                columns={
+                    "total_count": f"{subject} - إجمالي التقييمات",
+                    "completed_count": f"{subject} - المنجز",
+                    "solve_pct": f"{subject} - نسبة الإنجاز %"
+                }
+            )
+        )
+        result = result.merge(subject_df, on="student_name", how="left")
 
-        subject_df = subject_df.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
-
-        subject_df = subject_df.rename(columns={
-            'total_count': f"{subject} - إجمالي التقييمات",
-            'completed_count': f"{subject} - المنجز",
-            'pending_titles': f"{subject} - عناوين التقييمات المتبقية",
-            'solve_pct': f"{subject} - نسبة الإنجاز %"
-        })
-
-        result = result.merge(subject_df, on=['student_name', 'level', 'section'], how='left')
-
-    # النسبة العامة والفئة
-    pct_cols = [col for col in result.columns if 'نسبة الإنجاز %' in col]
+    pct_cols = [c for c in result.columns if c.endswith("نسبة الإنجاز %")]
     if pct_cols:
-        result['نسبة حل التقييمات في جميع المواد'] = result[pct_cols].mean(axis=1)
+        result["نسبة حل التقييمات في جميع المواد"] = result[pct_cols].mean(axis=1, skipna=True)
 
         def categorize(pct):
-            if pd.isna(pct):
-                return "-"
-            elif pct == 0:
-                return "لا يستفيد من النظام 🚫"
-            elif pct >= 90:
-                return "البلاتينية 🥇"
-            elif pct >= 80:
-                return "الذهبي 🥈"
-            elif pct >= 70:
-                return "الفضي 🥉"
-            elif pct >= 60:
-                return "البرونزي"
-            else:
-                return "يحتاج تحسين ⚠️"
+            if pd.isna(pct): return "-"
+            if pct == 0:     return "لا يستفيد من النظام 🚫"
+            if pct >= 90:    return "البلاتينية 🥇"
+            if pct >= 80:    return "الذهبي 🥈"
+            if pct >= 70:    return "الفضي 🥉"
+            if pct >= 60:    return "البرونزي"
+            return "يحتاج تحسين ⚠️"
 
-        result['الفئة'] = result['نسبة حل التقييمات في جميع المواد'].apply(categorize)
+        result["الفئة"] = result["نسبة حل التقييمات في جميع المواد"].apply(categorize)
 
-    result = result.rename(columns={
-        'student_name': 'اسم الطالب',
-        'level': 'الصف',
-        'section': 'الشعبة'
-    })
-
-    # إزالة أي أعمدة مكررة + دمج تكرار الصفوف (لو بقي فرق بسيط بالشعبة/الصف الفارغ)
+    result = result.rename(columns={"student_name": "اسم الطالب", "level": "الصف", "section": "الشعبة"})
     result = result.loc[:, ~result.columns.duplicated()]
-    result['الصف'] = result['الصف'].fillna("").astype(str).str.strip()
-    result['الشعبة'] = result['الشعبة'].fillna("").astype(str).str.strip()
-    result = result.drop_duplicates(subset=['اسم الطالب', 'الصف', 'الشعبة'], keep='first').reset_index(drop=True)
+    base_cols = ["اسم الطالب", "الصف", "الشعبة"]
+    other_cols = [c for c in result.columns if c not in base_cols]
+    result = result[base_cols + other_cols]
+    result = result.drop_duplicates(subset=["اسم الطالب"], keep="first").reset_index(drop=True)
     return result
 
 def generate_student_html_report(student_row: pd.Series, school_name="", coordinator="", academic="", admin="", principal="", logo_base64="") -> str:
-    """تقرير الطالب — شعار يمين، نسبة إنجاز، مواد كـ شارات عنابية."""
+    """تقرير الطالب — جدول: المادة | إجمالي | منجز | متبقّي + صف الإجمالي، شعار يمين، ثيم عنّابي."""
+    PRIMARY = "#8A1538"
+
     student_name = student_row['اسم الطالب']
     level = student_row['الصف']
     section = student_row['الشعبة']
 
-    total_assessments = 0
-    total_completed = 0
+    total_assessments_all = 0
+    total_completed_all = 0
     subjects_html = ""
     subject_list = []
 
@@ -299,34 +253,32 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
         if ' - إجمالي التقييمات' in col:
             subject = col.replace(' - إجمالي التقييمات', '')
             subject_list.append(subject)
+
             total_col = f"{subject} - إجمالي التقييمات"
             completed_col = f"{subject} - المنجز"
-            pending_col = f"{subject} - عناوين التقييمات المتبقية"
 
-            if pd.notna(student_row[total_col]):
-                total = int(student_row[total_col])
-                completed = int(student_row[completed_col]) if pd.notna(student_row[completed_col]) else 0
-                pending_titles = str(student_row[pending_col]) if pd.notna(student_row[pending_col]) and str(student_row[pending_col]) != "" else "-"
+            total = int(student_row[total_col]) if pd.notna(student_row[total_col]) else 0
+            completed = int(student_row[completed_col]) if pd.notna(student_row[completed_col]) else 0
+            remaining = max(total - completed, 0)
 
-                total_assessments += total
-                total_completed += completed
+            total_assessments_all += total
+            total_completed_all += completed
 
-                subjects_html += f"""
-                <tr>
-                    <td style="text-align: right; padding: 10px; border: 1px solid #eee;">{subject}</td>
-                    <td style="text-align: center; padding: 10px; border: 1px solid #eee;">{total}</td>
-                    <td style="text-align: center; padding: 10px; border: 1px solid #eee;">{completed}</td>
-                    <td style="text-align: right; padding: 10px; border: 1px solid #eee;">{pending_titles}</td>
-                </tr>
-                """
+            subjects_html += f"""
+            <tr>
+                <td style="text-align:right; padding:10px; border:1px solid #eee;">{subject}</td>
+                <td style="text-align:center; padding:10px; border:1px solid #eee;">{total}</td>
+                <td style="text-align:center; padding:10px; border:1px solid #eee;">{completed}</td>
+                <td style="text-align:center; padding:10px; border:1px solid #eee;">{remaining}</td>
+            </tr>
+            """
 
-    # النسبة العامة
+    total_remaining_all = max(total_assessments_all - total_completed_all, 0)
+
     if 'نسبة حل التقييمات في جميع المواد' in student_row.index and pd.notna(student_row['نسبة حل التقييمات في جميع المواد']):
         overall_pct = float(student_row['نسبة حل التقييمات في جميع المواد'])
     else:
-        overall_pct = (total_completed / total_assessments * 100) if total_assessments > 0 else 0.0
-
-    remaining = total_assessments - total_completed
+        overall_pct = (total_completed_all / total_assessments_all * 100) if total_assessments_all > 0 else 0.0
 
     if overall_pct == 0:
         recommendation = "الطالب لم يستفد من النظام - يرجى التواصل مع ولي الأمر فورًا 🚫"
@@ -347,8 +299,8 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
         recommendation = "يرجى الاهتمام أكثر بالتقييمات ومراجعة المواد"
         category_color = "#F05C6B"
 
-    logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="max-height: 80px; margin-bottom: 10px;" />' if logo_base64 else ""
-    school_section = f"<h2 style='color: {PRIMARY}; margin: 0;'>{school_name}</h2>" if school_name else ""
+    logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="max-height:80px; margin-bottom:10px;" />' if logo_base64 else ""
+    school_section = f"<h2 style='color:{PRIMARY}; margin:0;'>{school_name}</h2>" if school_name else ""
 
     header_html = f"""
         <div style="display:flex; flex-direction:row-reverse; align-items:center; justify-content:space-between; gap:10px;">
@@ -360,15 +312,12 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
         </div>
     """
 
-    # شارات المواد (عنابية)
-    subjects_badge = ""
-    if subject_list:
-        chips = "".join([f"<span class='chip'>{subj}</span>" for subj in subject_list])
-        subjects_badge = f"""
-        <div style="background:#F2E8EC; border:1px solid {ACCENT}; padding:10px; border-radius:10px; margin: 10px 0;">
-            <strong style="color:{PRIMARY};">المواد:</strong> {chips}
-        </div>
-        """
+    chips = "".join([f"<span class='chip'>{subj}</span>" for subj in subject_list])
+    subjects_badge = f"""
+    <div style="background:#F2E8EC; border:1px solid #D9B3C2; padding:10px; border-radius:10px; margin:10px 0;">
+        <strong style="color:{PRIMARY};">المواد:</strong> {chips}
+    </div>
+    """ if subject_list else ""
 
     html = f"""
     <!DOCTYPE html>
@@ -378,27 +327,23 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
         <title>تقرير {student_name}</title>
         <style>
             @page {{ size: A4; margin: 14mm; }}
-            body {{ font-family: "Tajawal","Cairo","DejaVu Sans", Arial, sans-serif; direction: rtl; padding: 20px; background: {BG_SOFT}; }}
-            .container {{ max-width: 840px; margin: 0 auto; background: {CARD_BG}; padding: 24px 28px; border: 1px solid #eee; border-radius: 14px; }}
-            .header {{ border-bottom: 3px solid {PRIMARY}; padding-bottom: 16px; margin-bottom: 22px; }}
-            .student-info {{ background: #F3F7FB; padding: 16px; border-radius: 10px; margin-bottom: 18px; }}
-            .student-info h3 {{ margin: 0 0 10px 0; color: {PRIMARY}; }}
-            table {{ width: 100%; border-collapse: collapse; margin: 14px 0; }}
-            th {{ background: {PRIMARY}; color: white; padding: 10px; text-align: center; border: 1px solid {PRIMARY_DARK}; font-size: 14px; }}
-            td {{ padding: 10px; border: 1px solid #eee; }}
-            tr:nth-child(even) {{ background-color: #fafafa; }}
-            .stats-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }}
-            .stat-box {{ background: #fff; border: 1px solid #eee; padding: 14px; border-radius: 10px; text-align: center; }}
-            .stat-value {{ font-size: 26px; font-weight: bold; color: {PRIMARY}; }}
-            .stat-label {{ font-size: 13px; color: #666; margin-top: 6px; }}
-            .overall-badge {{ background: {PRIMARY}; color: white; padding: 8px 12px; border-radius: 999px; font-weight: 700; display:inline-block; }}
-            .recommendation {{ background: {category_color}; color: white; padding: 14px; border-radius: 10px; margin: 16px 0; text-align: center; font-size: 15px; font-weight: 700; }}
-            .signatures {{ margin-top: 24px; border-top: 2px solid #eee; padding-top: 16px; }}
-            .signature-line {{ margin: 10px 0; font-size: 14px; }}
-            @media print {{
-                body {{ background: white; padding: 0; }}
-                .container {{ box-shadow: none; max-width: 100%; }}
-            }}
+            body {{ font-family:"Tajawal","Cairo","DejaVu Sans",Arial,sans-serif; direction:rtl; padding:20px; background:{BG_SOFT}; }}
+            .container {{ max-width: 840px; margin:0 auto; background:#fff; padding:24px 28px; border:1px solid #eee; border-radius:14px; }}
+            .header {{ border-bottom:3px solid {PRIMARY}; padding-bottom:16px; margin-bottom:22px; }}
+            .student-info {{ background:#F3F7FB; padding:16px; border-radius:10px; margin-bottom:18px; }}
+            .student-info h3 {{ margin:0 0 10px 0; color:{PRIMARY}; }}
+            table {{ width:100%; border-collapse:collapse; margin:14px 0; table-layout:fixed; }}
+            th {{ background:{PRIMARY}; color:#fff; padding:10px; text-align:center; border:1px solid {PRIMARY_DARK}; font-size:14px; }}
+            td {{ padding:10px; border:1px solid #eee; }}
+            tr:nth-child(even) {{ background:#fafafa; }}
+            tfoot td {{ background:#F8EDEF; font-weight:700; border-top:2px solid {PRIMARY}; }}
+            .stats-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px; }}
+            .stat-box {{ background:#fff; border:1px solid #eee; padding:14px; border-radius:10px; text-align:center; }}
+            .stat-value {{ font-size:26px; font-weight:bold; color:{PRIMARY}; }}
+            .overall-badge {{ background:{PRIMARY}; color:#fff; padding:8px 12px; border-radius:999px; font-weight:700; display:inline-block; }}
+            .recommendation {{ background:{category_color}; color:#fff; padding:14px; border-radius:10px; margin:16px 0; text-align:center; font-size:15px; font-weight:700; }}
+            .signatures {{ margin-top:24px; border-top:2px solid #eee; padding-top:16px; }}
+            .signature-line {{ margin:10px 0; font-size:14px; }}
         </style>
     </head>
     <body>
@@ -419,22 +364,30 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
                         <th>المادة</th>
                         <th>عدد التقييمات الإجمالي</th>
                         <th>عدد التقييمات المنجزة</th>
-                        <th>عناوين التقييمات المتبقية</th>
+                        <th>عدد التقييمات المتبقية</th>
                     </tr>
                 </thead>
                 <tbody>
                     {subjects_html}
                 </tbody>
+                <tfoot>
+                    <tr>
+                        <td style="text-align:right; padding:10px; border:1px solid #eee;">الإجمالي</td>
+                        <td style="text-align:center; padding:10px; border:1px solid #eee;">{total_assessments_all}</td>
+                        <td style="text-align:center; padding:10px; border:1px solid #eee;">{total_completed_all}</td>
+                        <td style="text-align:center; padding:10px; border:1px solid #eee;">{total_remaining_all}</td>
+                    </tr>
+                </tfoot>
             </table>
 
             <div class="stats-grid">
                 <div class="stat-box">
                     <div class="stat-label">منجز</div>
-                    <div class="stat-value">{total_completed}</div>
+                    <div class="stat-value">{total_completed_all}</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">متبقي</div>
-                    <div class="stat-value">{remaining}</div>
+                    <div class="stat-value">{total_remaining_all}</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-label">نسبة حل التقييمات</div>
@@ -442,9 +395,7 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
                 </div>
             </div>
 
-            <div class="recommendation">
-                توصية منسق المشاريع: {recommendation}
-            </div>
+            <div class="recommendation">توصية منسق المشاريع: {recommendation}</div>
 
             <div class="signatures">
                 <div class="signature-line"><strong>منسق المشاريع/</strong> {coordinator if coordinator else "_____________"}</div>
@@ -453,16 +404,71 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
                     <strong>النائب الإداري/</strong> {admin if admin else "_____________"}
                 </div>
                 <div class="signature-line"><strong>مدير المدرسة/</strong> {principal if principal else "_____________"}</div>
-
-                <p style="text-align: center; color: #999; margin-top: 16px; font-size: 12px;">
-                    تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d')}
-                </p>
+                <p style="text-align:center; color:#999; margin-top:16px; font-size:12px;">تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d')}</p>
             </div>
         </div>
     </body>
     </html>
     """
     return html
+
+# ================== الذكاء الاصطناعي (اختياري مع تعويض) ==================
+AI_READY = True
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+    import numpy as np
+except Exception:
+    AI_READY = False
+
+def _extract_feature_matrix_from_pivot(pivot_df: pd.DataFrame):
+    feat_cols = [c for c in pivot_df.columns if c.endswith("نسبة الإنجاز %")]
+    if "نسبة حل التقييمات في جميع المواد" in pivot_df.columns:
+        feat_cols = feat_cols + ["نسبة حل التقييمات في جميع المواد"]
+    valid_mask = pivot_df[feat_cols].notna().any(axis=1) if feat_cols else pd.Series(False, index=pivot_df.index)
+    X = pivot_df.loc[valid_mask, feat_cols].fillna(pivot_df[feat_cols].mean()) if feat_cols else pd.DataFrame()
+    return X.values.astype(float) if not X.empty else None, feat_cols, valid_mask
+
+def ai_cluster_students(pivot_df: pd.DataFrame, n_clusters: int = 4):
+    if not AI_READY:
+        pivot_df["تصنيف AI"] = "-"
+        return pivot_df, {}
+    if pivot_df is None or pivot_df.empty:
+        return pivot_df, {}
+
+    X, feat_cols, valid_mask = _extract_feature_matrix_from_pivot(pivot_df)
+    if X is None or X.shape[0] < max(8, n_clusters):
+        pivot_df["تصنيف AI"] = "-"
+        return pivot_df, {}
+
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+    km = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
+    labels = km.fit_predict(Xs)
+
+    result = pivot_df.copy()
+    result.loc[valid_mask, "__cluster"] = labels
+
+    if "نسبة حل التقييمات في جميع المواد" in pivot_df.columns:
+        overall = result.loc[valid_mask, "نسبة حل التقييمات في جميع المواد"].values
+    else:
+        overall = X.mean(axis=1)
+
+    import numpy as np
+    cluster_order = np.argsort([overall[result.loc[valid_mask, "__cluster"].values == k].mean()
+                                for k in range(n_clusters)])[::-1]
+
+    names = ["متميز", "مستقر", "يحتاج دعم", "عالي المخاطر"]
+    base_names = names[:n_clusters] if n_clusters <= len(names) else names + [f"فئة {i+1}" for i in range(n_clusters - len(names))]
+    label_map = {cluster_order[i]: base_names[i] for i in range(n_clusters)}
+    result["تصنيف AI"] = result["__cluster"].map(label_map).fillna("-")
+    result.drop(columns=["__cluster"], inplace=True)
+
+    explain = {
+        "feature_names": feat_cols,
+        "label_map": label_map
+    }
+    return result, explain
 
 # ================== الواجهة الرئيسية ==================
 
@@ -474,6 +480,7 @@ if "analysis_results" not in st.session_state:
 if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
+# ---- الشريط الجانبي: رفع عدة ملفات + اختيار أوراق موحّدة ----
 with st.sidebar:
     st.header("⚙️ الإعدادات")
 
@@ -486,22 +493,28 @@ with st.sidebar:
 
     if uploaded_files:
         st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
-        try:
-            xls = pd.ExcelFile(uploaded_files[0])
-            sheets = xls.sheet_names
-            selected_sheets = st.multiselect(
-                "اختر الأوراق (المواد)",
-                sheets,
-                default=sheets
-            )
-        except Exception as e:
-            st.error(f"خطأ: {e}")
-            selected_sheets = []
+        all_sheets = set()
+        per_file_sheets = {}
+        for f in uploaded_files:
+            try:
+                xls = pd.ExcelFile(f)
+                per_file_sheets[f.name] = xls.sheet_names
+                all_sheets.update(xls.sheet_names)
+            except Exception as e:
+                st.warning(f"⚠️ تعذّر قراءة الأوراق من الملف: {f.name} ({e})")
+        all_sheets = sorted(list(all_sheets))
+        selected_sheets = st.multiselect(
+            "اختر الأوراق (المواد) — سنحلّل فقط الأوراق المتوفرة داخل كل ملف:",
+            all_sheets,
+            default=all_sheets
+        )
     else:
         selected_sheets = []
+        per_file_sheets = {}
 
     st.divider()
 
+    # معلومات المدرسة + الشعار + التوقيعات
     st.subheader("🏫 معلومات المدرسة")
     school_name = st.text_input("اسم المدرسة", value="", placeholder="مثال: مدرسة قطر النموذجية")
 
@@ -528,51 +541,80 @@ with st.sidebar:
         disabled=not (uploaded_files and selected_sheets)
     )
 
-# إرشاد أولي
+# توجيه أولي
 if not uploaded_files:
     st.info("👈 الرجاء رفع ملفات Excel من الشريط الجانبي")
 
+# ---- تشغيل التحليل لعدة ملفات ----
 elif run_analysis:
     with st.spinner("جاري التحليل..."):
         try:
             all_results = []
-            progress_bar = st.progress(0)
-            total_sheets = len(uploaded_files) * len(selected_sheets)
-            current = 0
+            skipped = []
+            # احسب عدد الأوراق الموجودة فعلاً للتحسين
+            total_steps = 0
+            per_file_existing = {}
+            for f in uploaded_files:
+                try:
+                    available = pd.ExcelFile(f).sheet_names
+                except Exception:
+                    available = []
+                final_sheets = [s for s in selected_sheets] if selected_sheets else available
+                final_sheets = [s for s in final_sheets if s in available]
+                per_file_existing[f] = final_sheets
+                total_steps += len(final_sheets)
 
-            for file in uploaded_files:
-                for sheet in selected_sheets:
-                    results = analyze_excel_file(file, sheet)
-                    all_results.extend(results)
-                    current += 1
-                    progress_bar.progress(current / total_sheets)
+            progress = st.progress(0)
+            done = 0
+
+            for f in uploaded_files:
+                available = per_file_existing.get(f, [])
+                if not available:
+                    try:
+                        available = pd.ExcelFile(f).sheet_names
+                    except Exception:
+                        available = []
+                if not available:
+                    st.warning(f"لا توجد أوراق صالحة في الملف: {f.name}")
+                    continue
+
+                for sheet in available:
+                    try:
+                        results = analyze_excel_file(f, sheet)
+                        all_results.extend(results)
+                    except Exception as e:
+                        skipped.append(f"{f.name} → {sheet} ({e})")
+                    finally:
+                        done += 1
+                        progress.progress(min(1.0, done / max(1, total_steps)))
+
+            if skipped:
+                with st.expander("عرض الأوراق التي تمّ تجاوزها"):
+                    for s in skipped:
+                        st.write("• ", s)
 
             if all_results:
                 df = pd.DataFrame(all_results)
                 st.session_state.analysis_results = df
                 pivot = create_pivot_table(df)
-
-                # إزالة أعمدة مكررة والتأكيد على عدم تكرار الأسماء
                 pivot = pivot.loc[:, ~pivot.columns.duplicated()]
                 st.session_state.pivot_table = pivot
-                st.success(f"✅ تم تحليل {len(pivot)} طالب فريد من {len(selected_sheets)} مادة!")
+                st.success(f"✅ تم تحليل {len(pivot)} طالب فريد من {df['subject'].nunique()} مادة داخل {len(uploaded_files)} ملف!")
             else:
-                st.warning("⚠️ لم يتم العثور على بيانات")
+                st.warning("⚠️ لم يتم العثور على بيانات بعد معالجة كل الملفات")
 
         except Exception as e:
             st.error(f"❌ خطأ: {str(e)}")
 
-# ================== النتائج والرسوم ==================
+# ================== عرض النتائج والرسوم ==================
 if st.session_state.pivot_table is not None:
     pivot = st.session_state.pivot_table
     df = st.session_state.analysis_results
 
     st.markdown("## 📈 الإحصائيات العامة")
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("👥 عدد الطلاب", len(pivot))
-    with col2:
-        st.metric("📚 عدد المواد", df['subject'].nunique())
+    with col1: st.metric("👥 عدد الطلاب", len(pivot))
+    with col2: st.metric("📚 عدد المواد", df['subject'].nunique())
     with col3:
         avg = pivot['نسبة حل التقييمات في جميع المواد'].mean() if 'نسبة حل التقييمات في جميع المواد' in pivot.columns else 0
         st.metric("📈 متوسط النسبة", f"{avg:.1f}%")
@@ -662,15 +704,7 @@ if st.session_state.pivot_table is not None:
     st.subheader("🏆 توزيع الفئات")
     view_type = st.radio("اختر نوع الرسم:", ["دائري (Donut)", "أعمدة (Bar)"], horizontal=True)
     if 'الفئة' in pivot.columns:
-        cat_order = [
-            "البلاتينية 🥇",
-            "الذهبي 🥈",
-            "الفضي 🥉",
-            "البرونزي",
-            "يحتاج تحسين ⚠️",
-            "لا يستفيد من النظام 🚫",
-            "-"
-        ]
+        cat_order = ["البلاتينية 🥇","الذهبي 🥈","الفضي 🥉","البرونزي","يحتاج تحسين ⚠️","لا يستفيد من النظام 🚫","-"]
         cat_counts = pivot['الفئة'].fillna("-").value_counts().reindex(cat_order, fill_value=0)
         total_students = int(cat_counts.sum())
         st.caption(f"إجمالي الطلاب المحسوبين: {total_students}")
@@ -746,6 +780,36 @@ if st.session_state.pivot_table is not None:
         ax.grid(axis='y', alpha=0.25, linestyle='--')
         plt.tight_layout()
         st.pyplot(fig)
+
+    st.divider()
+
+    # ===== تصنيف الذكاء الاصطناعي =====
+    st.subheader("🤖 تصنيف الطلاب بالذكاء الاصطناعي")
+    col_ai1, col_ai2 = st.columns([1,1])
+    with col_ai1:
+        k = st.slider("عدد الفئات (Clusters)", min_value=3, max_value=6, value=4, step=1, help="زيادة العدد تعني فئات أدق")
+    with col_ai2:
+        do_ai = st.checkbox("تفعيل التصنيف الذكي", value=True)
+
+    if do_ai:
+        if not AI_READY:
+            st.info("ℹ️ التصنيف الذكي غير مُفعّل لأن مكتبة scikit-learn غير متاحة في هذا التشغيل. يمكنك تفعيلها لاحقًا.")
+        else:
+            pivot_ai, explain = ai_cluster_students(st.session_state.pivot_table, n_clusters=k)
+            st.session_state.pivot_table = pivot_ai
+
+            if "تصنيف AI" in pivot_ai.columns:
+                counts = pivot_ai["تصنيف AI"].value_counts()
+                st.write("**توزيع الفئات:**")
+                st.bar_chart(counts)
+
+                view_cols = ["اسم الطالب", "الصف", "الشعبة", "نسبة حل التقييمات في جميع المواد", "تصنيف AI"]
+                view_cols = [c for c in view_cols if c in pivot_ai.columns]
+                st.dataframe(pivot_ai[view_cols].sort_values(by=view_cols[-2] if len(view_cols) >= 2 else "اسم الطالب", ascending=False),
+                             use_container_width=True, height=420)
+
+                csv_ai = pivot_ai.to_csv(index=False, encoding="utf-8-sig")
+                st.download_button("📥 تنزيل النتائج مع تصنيف AI (CSV)", csv_ai, "ai_labeled_results.csv", "text/csv")
 
     st.divider()
 
