@@ -103,11 +103,13 @@ def parse_sheet_name(sheet_name: str):
 
 def analyze_excel_file(file, sheet_name):
     """
-    تحليل ورقة واحدة — منطق العد كما هو:
-    - نعد M فقط كـ (غير منجز)
-    - completed_count = total_assessments - m_count
-    - لا نحفظ عناوين التقييمات المتبقية
-    - منع تكرار الاسم داخل نفس الشيت (seen_names)
+    تحليل ورقة واحدة — حسب طريقتك:
+    - نحدّد عدد أعمدة التقييم من صف العناوين (الصف 0) بدءًا من العمود H (index 7).
+    - لكل طالب: المُسنَّد = عدد الخلايا غير الفارغة في صفّه داخل أعمدة التقييم.
+                 m_count = عدد خلايا M فقط.
+                 المنجَز = المُسنَّد - m_count.
+                 النسبة = المنجَز / المُسنَّد.
+    - منع تكرار الاسم داخل نفس الشيت (seen_names).
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
@@ -121,12 +123,12 @@ def analyze_excel_file(file, sheet_name):
         else:
             level, section = level_from_name, section_from_name
 
-        # عدد التقييمات = عدد العناوين غير الفارغة في الصف 0 ابتداءً من العمود H (index 7)
-        total_assessments = 0
+        # عدد التقييمات المحتملة = عدد العناوين غير الفارغة في الصف 0 ابتداءً من العمود H
+        total_assessment_cols = 0
         for col_idx in range(7, df.shape[1]):
             title = df.iloc[0, col_idx]
             if pd.notna(title) and str(title).strip():
-                total_assessments += 1
+                total_assessment_cols += 1
 
         results, seen_names = [], set()
 
@@ -141,18 +143,24 @@ def analyze_excel_file(file, sheet_name):
                 continue
             seen_names.add(student_name_clean)
 
-            # العد (M فقط غير منجز)
+            # === طريقتك: المُسنَّد = الخلايا غير الفارغة فقط، و M فقط = لم يُسلّم
+            assigned_count = 0
             m_count = 0
-            for i in range(total_assessments):
+
+            for i in range(total_assessment_cols):
                 col_idx = 7 + i
                 if col_idx >= df.shape[1]:
                     break
-                cell_value = df.iloc[idx, col_idx]
-                if pd.notna(cell_value) and str(cell_value).strip().upper() == 'M':
-                    m_count += 1
 
-            completed_count = total_assessments - m_count
-            solve_pct = (completed_count / total_assessments * 100) if total_assessments > 0 else 0.0
+                cell_value = df.iloc[idx, col_idx]
+                s = (str(cell_value).strip().upper() if pd.notna(cell_value) else "")
+                if s != "":                     # خلية غير فارغة => مُسنّدة
+                    assigned_count += 1
+                    if s == "M":
+                        m_count += 1
+
+            completed_count = max(assigned_count - m_count, 0)
+            solve_pct = (completed_count / assigned_count * 100) if assigned_count > 0 else 0.0
 
             results.append({
                 "student_name": student_name_clean,
@@ -161,7 +169,7 @@ def analyze_excel_file(file, sheet_name):
                 "section": str(section).strip(),
                 "solve_pct": solve_pct,
                 "completed_count": completed_count,
-                "total_count": total_assessments
+                "total_count": assigned_count   # إجمالي التقييمات = المُسنَّد للطالب نفسه
             })
 
         return results
@@ -173,14 +181,15 @@ def analyze_excel_file(file, sheet_name):
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
     """
     جدول محوري بصف واحد لكل طالب عبر جميع المواد.
-    - ندمج على أساس student_name فقط (لحل مشكلة اختلاف الملف/الورقة).
+    - ندمج على أساس student_name فقط (حل مشكلة تكرار الأسماء).
     - نختار الصف/الشعبة الأكثر شيوعًا لكل طالب.
-    - بدون أعمدة عناوين التقييمات المتبقية.
+    - الأعمدة: لكل مادة (إجمالي المسنَّد/المنجَز/نسبة الإنجاز) + النسبة العامة + الفئة.
     """
     df = df.copy()
     if "student_name" in df.columns:
         df["student_name"] = df["student_name"].apply(normalize_ar_name)
 
+    # إزالة تكرار (اسم+مادة) داخل النتائج الخام
     df_clean = df.drop_duplicates(subset=["student_name", "subject"], keep="first")
 
     def mode_nonempty(s):
@@ -213,6 +222,7 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
         )
         result = result.merge(subject_df, on="student_name", how="left")
 
+    # النسبة العامة والفئة
     pct_cols = [c for c in result.columns if c.endswith("نسبة الإنجاز %")]
     if pct_cols:
         result["نسبة حل التقييمات في جميع المواد"] = result[pct_cols].mean(axis=1, skipna=True)
@@ -228,7 +238,8 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
 
         result["الفئة"] = result["نسبة حل التقييمات في جميع المواد"].apply(categorize)
 
-    result = result.rename(columns={"student_name": "اسم الطالب", "level": "الصف", "section": "الشعبة"})
+    result = result.rename(columns={"student_name": "اسم الطالب", "level": "الصف", "الشعبة": "الشعبة"}) \
+                   .rename(columns={"section": "الشعبة"})
     result = result.loc[:, ~result.columns.duplicated()]
     base_cols = ["اسم الطالب", "الصف", "الشعبة"]
     other_cols = [c for c in result.columns if c not in base_cols]
@@ -237,7 +248,7 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 def generate_student_html_report(student_row: pd.Series, school_name="", coordinator="", academic="", admin="", principal="", logo_base64="") -> str:
-    """تقرير الطالب — جدول: المادة | إجمالي | منجز | متبقّي + صف الإجمالي، شعار يمين، ثيم عنّابي."""
+    """تقرير الطالب — جدول: المادة | إجمالي (المُسنَّد) | منجز | متبقّي + صف الإجمالي، شعار يمين، ثيم عنّابي."""
     PRIMARY = "#8A1538"
 
     student_name = student_row['اسم الطالب']
@@ -362,7 +373,7 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
                 <thead>
                     <tr>
                         <th>المادة</th>
-                        <th>عدد التقييمات الإجمالي</th>
+                        <th>عدد التقييمات المُسنَّدة</th>
                         <th>عدد التقييمات المنجزة</th>
                         <th>عدد التقييمات المتبقية</th>
                     </tr>
@@ -403,7 +414,7 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
                     <strong>النائب الأكاديمي/</strong> {academic if academic else "_____________"} &nbsp;&nbsp;&nbsp;
                     <strong>النائب الإداري/</strong> {admin if admin else "_____________"}
                 </div>
-                <div class="signature-line"><strong>مدير المدرسة/</strong> {principal if principal else "_____________"}</div>
+                <div class="signature-line"><strong>مدير المدرسة/</strong> {principal if principal else "_____________"} </div>
                 <p style="text-align:center; color:#999; margin-top:16px; font-size:12px;">تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d')}</p>
             </div>
         </div>
@@ -411,64 +422,6 @@ def generate_student_html_report(student_row: pd.Series, school_name="", coordin
     </html>
     """
     return html
-
-# ================== الذكاء الاصطناعي (اختياري مع تعويض) ==================
-AI_READY = True
-try:
-    from sklearn.cluster import KMeans
-    from sklearn.preprocessing import StandardScaler
-    import numpy as np
-except Exception:
-    AI_READY = False
-
-def _extract_feature_matrix_from_pivot(pivot_df: pd.DataFrame):
-    feat_cols = [c for c in pivot_df.columns if c.endswith("نسبة الإنجاز %")]
-    if "نسبة حل التقييمات في جميع المواد" in pivot_df.columns:
-        feat_cols = feat_cols + ["نسبة حل التقييمات في جميع المواد"]
-    valid_mask = pivot_df[feat_cols].notna().any(axis=1) if feat_cols else pd.Series(False, index=pivot_df.index)
-    X = pivot_df.loc[valid_mask, feat_cols].fillna(pivot_df[feat_cols].mean()) if feat_cols else pd.DataFrame()
-    return X.values.astype(float) if not X.empty else None, feat_cols, valid_mask
-
-def ai_cluster_students(pivot_df: pd.DataFrame, n_clusters: int = 4):
-    if not AI_READY:
-        pivot_df["تصنيف AI"] = "-"
-        return pivot_df, {}
-    if pivot_df is None or pivot_df.empty:
-        return pivot_df, {}
-
-    X, feat_cols, valid_mask = _extract_feature_matrix_from_pivot(pivot_df)
-    if X is None or X.shape[0] < max(8, n_clusters):
-        pivot_df["تصنيف AI"] = "-"
-        return pivot_df, {}
-
-    scaler = StandardScaler()
-    Xs = scaler.fit_transform(X)
-    km = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
-    labels = km.fit_predict(Xs)
-
-    result = pivot_df.copy()
-    result.loc[valid_mask, "__cluster"] = labels
-
-    if "نسبة حل التقييمات في جميع المواد" in pivot_df.columns:
-        overall = result.loc[valid_mask, "نسبة حل التقييمات في جميع المواد"].values
-    else:
-        overall = X.mean(axis=1)
-
-    import numpy as np
-    cluster_order = np.argsort([overall[result.loc[valid_mask, "__cluster"].values == k].mean()
-                                for k in range(n_clusters)])[::-1]
-
-    names = ["متميز", "مستقر", "يحتاج دعم", "عالي المخاطر"]
-    base_names = names[:n_clusters] if n_clusters <= len(names) else names + [f"فئة {i+1}" for i in range(n_clusters - len(names))]
-    label_map = {cluster_order[i]: base_names[i] for i in range(n_clusters)}
-    result["تصنيف AI"] = result["__cluster"].map(label_map).fillna("-")
-    result.drop(columns=["__cluster"], inplace=True)
-
-    explain = {
-        "feature_names": feat_cols,
-        "label_map": label_map
-    }
-    return result, explain
 
 # ================== الواجهة الرئيسية ==================
 
@@ -494,11 +447,9 @@ with st.sidebar:
     if uploaded_files:
         st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
         all_sheets = set()
-        per_file_sheets = {}
         for f in uploaded_files:
             try:
                 xls = pd.ExcelFile(f)
-                per_file_sheets[f.name] = xls.sheet_names
                 all_sheets.update(xls.sheet_names)
             except Exception as e:
                 st.warning(f"⚠️ تعذّر قراءة الأوراق من الملف: {f.name} ({e})")
@@ -510,7 +461,6 @@ with st.sidebar:
         )
     else:
         selected_sheets = []
-        per_file_sheets = {}
 
     st.divider()
 
@@ -551,6 +501,7 @@ elif run_analysis:
         try:
             all_results = []
             skipped = []
+
             # احسب عدد الأوراق الموجودة فعلاً للتحسين
             total_steps = 0
             per_file_existing = {}
@@ -780,36 +731,6 @@ if st.session_state.pivot_table is not None:
         ax.grid(axis='y', alpha=0.25, linestyle='--')
         plt.tight_layout()
         st.pyplot(fig)
-
-    st.divider()
-
-    # ===== تصنيف الذكاء الاصطناعي =====
-    st.subheader("🤖 تصنيف الطلاب بالذكاء الاصطناعي")
-    col_ai1, col_ai2 = st.columns([1,1])
-    with col_ai1:
-        k = st.slider("عدد الفئات (Clusters)", min_value=3, max_value=6, value=4, step=1, help="زيادة العدد تعني فئات أدق")
-    with col_ai2:
-        do_ai = st.checkbox("تفعيل التصنيف الذكي", value=True)
-
-    if do_ai:
-        if not AI_READY:
-            st.info("ℹ️ التصنيف الذكي غير مُفعّل لأن مكتبة scikit-learn غير متاحة في هذا التشغيل. يمكنك تفعيلها لاحقًا.")
-        else:
-            pivot_ai, explain = ai_cluster_students(st.session_state.pivot_table, n_clusters=k)
-            st.session_state.pivot_table = pivot_ai
-
-            if "تصنيف AI" in pivot_ai.columns:
-                counts = pivot_ai["تصنيف AI"].value_counts()
-                st.write("**توزيع الفئات:**")
-                st.bar_chart(counts)
-
-                view_cols = ["اسم الطالب", "الصف", "الشعبة", "نسبة حل التقييمات في جميع المواد", "تصنيف AI"]
-                view_cols = [c for c in view_cols if c in pivot_ai.columns]
-                st.dataframe(pivot_ai[view_cols].sort_values(by=view_cols[-2] if len(view_cols) >= 2 else "اسم الطالب", ascending=False),
-                             use_container_width=True, height=420)
-
-                csv_ai = pivot_ai.to_csv(index=False, encoding="utf-8-sig")
-                st.download_button("📥 تنزيل النتائج مع تصنيف AI (CSV)", csv_ai, "ai_labeled_results.csv", "text/csv")
 
     st.divider()
 
