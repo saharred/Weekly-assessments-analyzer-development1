@@ -164,6 +164,11 @@ st.markdown("""
         font-weight: 600;
     }
     
+    /* Main content headers */
+    .main h1, .main h2, .main h3, .main h4, .main h5, .main h6 {
+        color: #8A1538;
+    }
+    
     h1 { font-size: 32px; line-height: 1.3; margin-bottom: 12px; }
     h2 { font-size: 24px; line-height: 1.4; margin-bottom: 16px; }
     h3 { font-size: 20px; line-height: 1.4; margin-bottom: 12px; }
@@ -594,12 +599,15 @@ if st.session_state.pivot_table is not None:
     
     # Footer
     st.markdown("""
-    <div style='text-align: center; margin-top: 48px; padding: 24px; color: #5A5A5A; font-size: 12px; border-top: 2px solid #E8E8E6;'>
-        <p style='color: #8A1538; font-weight: 600; margin-bottom: 8px;'>
+    <div style='text-align: center; margin-top: 48px; padding: 32px 24px; background: linear-gradient(to bottom, #8A1538 0%, #6B1029 100%); border-top: 3px solid #C5A572; border-radius: 8px; box-shadow: 0 4px 12px rgba(138, 21, 56, 0.15);'>
+        <p style='color: #FFFFFF; font-weight: 700; font-size: 16px; margin-bottom: 12px;'>
             © جميع الحقوق محفوظة لمدرسة عثمان بن عفان النموذجية للبنين
         </p>
-        <p style='margin: 0;'>
+        <p style='color: #FFFFFF; font-weight: 600; font-size: 14px; margin-bottom: 8px;'>
             منسقة المشاريع الإلكترونية / سحر عثمان
+        </p>
+        <p style='color: #FFFFFF; font-size: 13px; margin: 0;'>
+            📧 للتواصل: <a href='mailto:S.mahgoub0101@education.qa' style='color: #C5A572; font-weight: 600; text-decoration: none;'>S.mahgoub0101@education.qa</a>
         </p>
     </div>
     """, unsafe_allow_html=True)
