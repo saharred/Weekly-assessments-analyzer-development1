@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os, io, re, zipfile, logging
 from datetime import datetime, date
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 import streamlit as st
 import pandas as pd
@@ -41,12 +41,17 @@ def setup_app():
     defaults = {
         "analysis_results": None,
         "pivot_table": None,
-        "font_info": ("", None),
+        "font_info": None,           # سيتحدد تلقائيًا
         "logo_path": None,
+        "selected_sheets": [],       # [(file, sheet), ...]
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+    # ضبط الخط العربي الافتراضي مرة واحدة
+    if st.session_state.font_info is None:
+        st.session_state.font_info = prepare_default_font()
 
     # CSS
     st.markdown("""
@@ -124,16 +129,13 @@ def parse_date_range(d):
         return d, d
     return None, None
 
-def prepare_font_file(font_file) -> Tuple[str, Optional[str]]:
+def prepare_default_font() -> Tuple[str, Optional[str]]:
+    """
+    يثبت خطًا عربيًا افتراضيًا بدون رفع ملف من المستخدم:
+    - DejaVuSans إن كان متاحًا.
+    - وإلا نعتمد خط PDF الافتراضي (سيعرض إنجليزي فقط).
+    """
     font_name = "ARFont"
-    if font_file is not None:
-        try:
-            path = f"/tmp/{font_file.name}"
-            with open(path, "wb") as f:
-                f.write(font_file.read())
-            return font_name, path
-        except Exception:
-            pass
     candidate = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     if os.path.exists(candidate):
         return font_name, candidate
@@ -197,8 +199,9 @@ def make_student_pdf_fpdf(
     pdf.set_y(28); pdf.cell(0,10, rtl("تقرير أداء الطالب - نظام قطر للتعليم"), ln=1, align="R")
     pdf.set_draw_color(*QATAR_GOLD); pdf.set_line_width(0.6); pdf.line(30,38,200,38)
 
-    # معلومات
-    set_font(12); pdf.ln(6)
+    # معلومات (أسود مثبت)
+    set_font(12, (0,0,0))
+    pdf.ln(6)
     pdf.cell(0,8, rtl(f"اسم المدرسة: {school_name or '—'}"), ln=1, align="R")
     pdf.cell(0,8, rtl(f"اسم الطالب: {student_name}"), ln=1, align="R")
     pdf.cell(0,8, rtl(f"الصف: {grade or '—'}     الشعبة: {section or '—'}"), ln=1, align="R")
@@ -212,7 +215,8 @@ def make_student_pdf_fpdf(
     for w, h in zip(widths, headers): pdf.cell(w,9,h,border=0,align="C",fill=True)
     pdf.ln(9)
 
-    set_font(11)
+    # صفوف الجدول (أسود مثبت)
+    set_font(11, (0,0,0))
     total_total=0; total_solved=0
     for _, r in table_df.iterrows():
         sub = rtl(str(r['المادة'])); tot=int(r['إجمالي']); solv=int(r['منجز']); rem=int(max(tot-solv,0))
@@ -223,32 +227,35 @@ def make_student_pdf_fpdf(
         pdf.cell(widths[2],8, str(solv),0, 0, "C", True)
         pdf.cell(widths[3],8, str(rem), 0, 1, "C", True)
 
-    # إحصاءات
+    # إحصاءات (أسود مثبت)
     pdf.ln(3); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("الإحصائيات"), ln=1, align="R")
-    set_font(12); pdf.cell(0,8, rtl(f"منجز: {total_solved}    متبقي: {max(total_total-total_solved,0)}    نسبة حل التقييمات: {overall_avg:.1f}%"), ln=1, align="R")
+    set_font(12, (0,0,0))
+    pdf.cell(0,8, rtl(f"منجز: {total_solved}    متبقي: {max(total_total-total_solved,0)}    نسبة حل التقييمات: {overall_avg:.1f}%"), ln=1, align="R")
 
     # توصية
     pdf.ln(2); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("توصية منسق المشاريع:"), ln=1, align="R")
-    set_font(11); 
+    set_font(11, (0,0,0))
     for line in (reco_text or "—").splitlines() or ["—"]:
         pdf.multi_cell(0,7, rtl(line), align="R")
 
     # روابط
     pdf.ln(2); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("روابط مهمة:"), ln=1, align="R")
-    set_font(11)
+    set_font(11, (0,0,0))
     pdf.cell(0,7, rtl("رابط نظام قطر: https://portal.education.qa"), ln=1, align="R")
     pdf.cell(0,7, rtl("استعادة كلمة المرور: https://password.education.qa"), ln=1, align="R")
     pdf.cell(0,7, rtl("قناة قطر للتعليم: https://edu.tv.qa"), ln=1, align="R")
 
-    # توقيعات
+    # توقيعات (نص أسود مثبت دائمًا)
     pdf.ln(4); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("التوقيعات"), ln=1, align="R")
-    set_font(11); pdf.set_draw_color(*QATAR_GOLD)
+    set_font(11, (0,0,0)); pdf.set_draw_color(*QATAR_GOLD)
     boxes=[("منسق المشاريع",coordinator_name),("النائب الأكاديمي",academic_deputy),
            ("النائب الإداري",admin_deputy),("مدير المدرسة",principal_name)]
     x_left,x_right=10,110; y0=pdf.get_y()+2; w,h=90,18
     for i,(t,n) in enumerate(boxes):
         row=i//2; col=i%2; x=x_right if col==0 else x_left; yb=y0+row*(h+6)
-        pdf.rect(x,yb,w,h); pdf.set_xy(x,yb+3); pdf.cell(w-4,6, rtl(f"{t} / {n or '—'}"), align="R")
+        pdf.rect(x,yb,w,h)
+        set_font(11, (0,0,0))  # تأكيد اللون الأسود داخل كل مربع
+        pdf.set_xy(x,yb+3);  pdf.cell(w-4,6, rtl(f"{t} / {n or '—'}"), align="R")
         pdf.set_xy(x,yb+10); pdf.cell(w-4,6, rtl("التوقيع: __________________    التاريخ: __________"), align="R")
 
     out = pdf.output(dest="S")
@@ -441,9 +448,36 @@ with st.sidebar:
     st.image("https://i.imgur.com/XLef7tS.png", width=110)
     st.markdown("---")
     st.header("⚙️ الإعدادات")
+
+    # تحميل الملفات + فلترة الأوراق
     st.subheader("📁 تحميل الملفات")
     uploaded_files = st.file_uploader("اختر ملفات Excel", type=["xlsx", "xls"], accept_multiple_files=True)
 
+    selected_sheets: List[tuple] = []
+    if uploaded_files:
+        all_sheets = []
+        sheet_file_map = {}
+        for file_idx, file in enumerate(uploaded_files):
+            try:
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    label = f"[ملف {file_idx+1}] {sheet}"
+                    all_sheets.append(label)
+                    sheet_file_map[label] = (file, sheet)
+            except Exception as e:
+                st.error(f"❌ خطأ في قراءة الملف: {e}")
+
+        if all_sheets:
+            st.info(f"📋 وُجدت {len(all_sheets)} ورقة في {len(uploaded_files)} ملف")
+            select_all = st.checkbox("✔️ اختر الجميع", value=True, key="select_all_sheets")
+            if select_all:
+                chosen = all_sheets
+            else:
+                chosen = st.multiselect("اختر الأوراق للتحليل", all_sheets, default=all_sheets[:1])
+            selected_sheets = [sheet_file_map[c] for c in chosen]
+    st.session_state.selected_sheets = selected_sheets
+
+    # فلتر تاريخ الاستحقاق
     st.subheader("⏳ فلتر تاريخ الاستحقاق")
     default_start = date.today().replace(day=1)
     default_end   = date.today()
@@ -453,10 +487,7 @@ with st.sidebar:
         due_start, due_end = due_end, due_start
     st.caption("عند استخدام المدى يتم استبعاد الأعمدة بلا تاريخ استحقاق.")
 
-    st.subheader("🔤 خط عربي للـPDF (اختياري)")
-    font_file = st.file_uploader("ارفع ملف خط TTF (مثل Cairo/Amiri)", type=["ttf"], key="font_file")
-    st.session_state.font_info = prepare_font_file(font_file)
-
+    # شعار المدرسة فقط (لا يوجد فلتر/مدخل لغة بعد الآن)
     st.subheader("🖼️ شعار المدرسة (اختياري)")
     logo_file = st.file_uploader("ارفع شعار PNG/JPG", type=["png","jpg","jpeg"], key="logo_file")
     st.session_state.logo_path = prepare_logo_file(logo_file)
@@ -471,23 +502,19 @@ with st.sidebar:
     principal_name   = st.text_input("مدير/ة المدرسة")
 
     st.markdown("---")
-    run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary", disabled=not uploaded_files)
+    run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary",
+                             disabled=not (uploaded_files and st.session_state.selected_sheets))
 
 # تحليل
 if not uploaded_files:
     st.info("📤 من الشريط الجانبي ارفع ملفات Excel للبدء في التحليل")
 elif run_analysis:
     with st.spinner("⏳ جاري التحليل..."):
-        all_rows=[]
-        for file in uploaded_files:
-            try:
-                xls = pd.ExcelFile(file)
-                for sheet in xls.sheet_names:
-                    all_rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
-            except Exception as e:
-                st.error(f"خطأ بقراءة الملف: {e}")
-        if all_rows:
-            df = pd.DataFrame(all_rows)
+        rows=[]
+        for file, sheet in st.session_state.selected_sheets:
+            rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
+        if rows:
+            df = pd.DataFrame(rows)
             st.session_state.analysis_results = df
             st.session_state.pivot_table = create_pivot_table(df)
             st.success(f"✅ تم تحليل {len(st.session_state.pivot_table)} طالب عبر {df['subject'].nunique()} مادة")
