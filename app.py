@@ -936,7 +936,28 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
         import traceback
         with st.expander("🔍 تفاصيل الخطأ"):
             st.code(traceback.format_exc())
-        return pd.DataFrame()جمالي',
+        return pd.DataFrame()
+
+def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """تطبيع البيانات وإضافة الفئات"""
+    out = df.rename(columns={'solve_pct': 'percent', 'student_name': 'student'})
+    
+    def cat(p):
+        if pd.isna(p):
+            return 'بحاجة لتحسين'
+        elif p >= 90:
+            return 'بلاتيني 🥇'
+        elif p >= 80:
+            return 'ذهبي 🥈'
+        elif p >= 70:
+            return 'فضي 🥉'
+        elif p >= 60:
+            return 'برونزي'
+        else:
+            return 'بحاجة لتحسين'
+    
+    out['category'] = out['percent'].apply(cat)
+    return outجمالي',
                 'completed_count': f'{subject} - منجز',
                 'solve_pct': f'{subject} - النسبة'
             }).drop_duplicates(subset=['student_name', 'level', 'section'])
@@ -1016,6 +1037,36 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
+    """تجميع البيانات حسب المادة"""
+    rows = []
+    
+    for s in df['subject'].dropna().unique():
+        sub = df[df['subject'] == s]
+        n = len(sub)
+        # ✅ إصلاح: معالجة NaN بشكل صحيح
+        avg = sub['percent'].mean() if n > 0 and sub['percent'].notna().any() else 0.0
+        
+        for cat in CATEGORY_ORDER:
+            c = (sub['category'] == cat).sum()
+            pct = (c / n * 100) if n > 0 else 0.0
+            
+            rows.append({
+                'subject': s,
+                'category': cat,
+                'count': int(c),
+                'percent_share': round(pct, 1),
+                'avg_completion': round(avg, 1)
+            })
+    
+    agg = pd.DataFrame(rows)
+    if agg.empty:
+        return agg
+    
+    # ترتيب المواد حسب متوسط الإنجاز
+    order = agg.groupby('subject')['avg_completion'].first().sort_values(ascending=False).index.tolist()
+    agg['subject'] = pd.Categorical(agg['subject'], categories=order, ordered=True)
+    
+    return agg.sort_values('subject')
     """تجميع البيانات حسب المادة"""
     rows = []
     
