@@ -221,7 +221,11 @@ st.markdown("")
 
 col1, col2, col3 = st.columns([1, 1.5, 1])
 with col3:
-    st.image("https://i.imgur.com/jFzu8As.jpeg", width=100)
+    col3_1, col3_2 = st.columns(2)
+    with col3_1:
+        st.image("https://i.imgur.com/jFzu8As.jpeg", width=90)
+    with col3_2:
+        st.image("https://i.imgur.com/XLef7tS.png", width=90)
 
 st.markdown("<div class='header-container'><h1>📊 محلل التقييمات الأسبوعية</h1><p style='font-size: 14px; margin: 10px 0; font-weight: 600;'>وزارة التربية والتعليم والتعليم العالي</p><p style='font-size: 13px; color: #D4A574; font-weight: 600; margin: 5px 0;'>ضمان تنمية رقمية مستدامة</p><p style='font-size: 12px; opacity: 0.9;'>نظام تحليل شامل وموثوق لنتائج الطلاب</p></div>", unsafe_allow_html=True)
 
@@ -231,7 +235,7 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
-    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/QfVfT9X.jpeg' style='width: 100px; height: auto;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/XLef7tS.png' style='width: 100px; height: auto;'></div>", unsafe_allow_html=True)
     
     st.markdown("---")
     st.header("الإعدادات")
