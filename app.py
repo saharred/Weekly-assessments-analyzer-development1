@@ -626,13 +626,14 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
         for c in range(7, df.shape[1]):
             # 1) قراءة عنوان العمود
             title = df.iloc[0, c] if c < df.shape[1] else None
-            if pd.isna(title):
-                break
+            # الأعمدة ذات العنوان الفارغ لا توقف المسح؛ يتم تخطيها فقط
+            if pd.isna(title) or str(title).strip() == "":
+                continue
             
             t = str(title).strip()
 
-            # 2) تجاهل العناوين التي تحتوي على شرطات
-            if any(ch in t for ch in ['-', '—', '–']):
+            # 2) تجاهل فقط العناوين التي هي شرطات بالكامل (وليس أي عنوان يحوي شرطة)
+            if t in ['-', '—', '–'] or re.fullmatch(r"[-—–]+", t):
                 continue
 
             # 3) قراءة تاريخ الاستحقاق من H3 (الصف 2، index=2)

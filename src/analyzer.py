@@ -1,6 +1,6 @@
 import pandas as pd
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from datetime import datetime, date
+from typing import List, Dict, Optional, Tuple, Union
 import streamlit as st
 import re
 
@@ -42,7 +42,8 @@ class AssessmentAnalyzer:
         names_row: int = 5,
         names_col: str = "A",
         due_row: int = 3,
-        date_range: Optional[Tuple[datetime, datetime]] = None
+        # يقبل تاريخين من نوع date أو datetime
+        date_range: Optional[Tuple[Union[date, datetime], Union[date, datetime]]] = None
     ):
         """
         Initialize assessment analyzer
@@ -55,9 +56,9 @@ class AssessmentAnalyzer:
             date_range: Optional date range filter (start_date, end_date)
         """
         self.start_col_letter = start_col_letter.upper()
-        self.names_row = names_row - 1  # Convert to 0-indexed
+        self.names_row = names_row - 1  # Convert to 0-indexed (first student row)
         self.names_col = self._col_letter_to_index(names_col.upper())
-        self.due_row = due_row - 1  # Convert to 0-indexed
+        self.due_row = due_row - 1  # Convert to 0-indexed (due date row)
         self.date_range = date_range
     
     def _col_letter_to_index(self, col_letter: str) -> int:
@@ -78,26 +79,99 @@ class AssessmentAnalyzer:
             col_idx //= 26
         return col_letter
     
-    def _parse_date(self, date_obj) -> Optional[datetime]:
-        """Parse various date formats to datetime."""
-        if pd.isna(date_obj):
-            return None
+    def _normalize_arabic_digits(self, text: str) -> str:
+        """Convert Arabic-Indic digits (٠-٩) to ASCII digits (0-9)."""
+        if not isinstance(text, str):
+            return str(text)
+        return text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+
+    def _parse_date(self, date_obj) -> Optional[date]:
+        """Parse various date formats (Arabic/English/Excel serial) to date."""
+        # Empty
+        try:
+            if pd.isna(date_obj):
+                return None
+        except Exception:
+            pass
+
+        # Pandas/Datetime
+        if isinstance(date_obj, pd.Timestamp):
+            return date_obj.date()
         if isinstance(date_obj, datetime):
-            return date_obj
+            return date_obj.date()
+
+        # Excel serial number
+        if isinstance(date_obj, (int, float)) and not pd.isna(date_obj):
+            try:
+                base = pd.to_datetime("1899-12-30")
+                dt = base + pd.to_timedelta(float(date_obj), unit="D")
+                return dt.date()
+            except Exception:
+                pass
+
+        # String parsing
         if isinstance(date_obj, str):
-            for fmt in ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d.%m.%Y"]:
+            s = date_obj.strip()
+            if not s:
+                return None
+            s = self._normalize_arabic_digits(s)
+
+            # Arabic months
+            arabic_months = {
+                "يناير": 1, "كانون الثاني": 1, "جانفي": 1,
+                "فبراير": 2, "شباط": 2, "فيفري": 2,
+                "مارس": 3, "اذار": 3, "آذار": 3,
+                "ابريل": 4, "أبريل": 4, "نيسان": 4, "افريل": 4,
+                "مايو": 5, "ماي": 5, "ايار": 5, "أيار": 5,
+                "يونيو": 6, "يونيه": 6, "حزيران": 6, "جوان": 6,
+                "يوليو": 7, "يوليه": 7, "تموز": 7, "جويلية": 7,
+                "اغسطس": 8, "أغسطس": 8, "اب": 8, "آب": 8, "اوت": 8,
+                "سبتمبر": 9, "ايلول": 9, "أيلول": 9, "سيبتمبر": 9,
+                "اكتوبر": 10, "أكتوبر": 10, "تشرين الاول": 10, "تشرين الأول": 10,
+                "نوفمبر": 11, "تشرين الثاني": 11, "نونبر": 11,
+                "ديسمبر": 12, "كانون الاول": 12, "كانون الأول": 12, "دجنبر": 12,
+            }
+
+            def normalize_hamza(text: str) -> str:
+                return text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ـ", "")
+
+            m = re.search(r"(\d{1,2})\s*[-/\s]*\s*([^\d\s]+)", s)
+            if m:
                 try:
-                    return datetime.strptime(date_obj.strip(), fmt)
-                except ValueError:
-                    continue
+                    day = int(m.group(1))
+                    month_name = m.group(2).strip()
+                    month = arabic_months.get(month_name)
+                    if month is None:
+                        nm = normalize_hamza(month_name)
+                        for k, v in arabic_months.items():
+                            if normalize_hamza(k) == nm:
+                                month = v
+                                break
+                    if month:
+                        # Use current year when year is not provided
+                        y = date.today().year
+                        # Clamp day to 28 to be safe
+                        safe_day = min(day, 28)
+                        return date(y, month, safe_day)
+                except Exception:
+                    pass
+
+            # Fallback to pandas
+            try:
+                parsed = pd.to_datetime(s, dayfirst=True, errors="coerce")
+                if pd.notna(parsed):
+                    return parsed.date()
+            except Exception:
+                pass
+
         return None
     
     def _is_ignored_value(self, value) -> bool:
-        """Check if value should be ignored (I, AB, X, or empty)."""
+        """Check if value should be ignored (I, AB, X, dashes, or empty)."""
         if pd.isna(value):
             return True
         str_value = str(value).strip().upper()
-        return str_value in ["I", "AB", "X", ""]
+        return str_value in ["I", "AB", "X", "", "-", "—", "–", "NAN", "NONE"]
     
     def _is_missing_value(self, value) -> bool:
         """Check if value is 'M' (missing submission)."""
@@ -162,31 +236,55 @@ class AssessmentAnalyzer:
         assessment_columns = []
         
         # Row 1 (index 0) for assessment names
-        if self.names_row < len(df):
+        headers_row_idx = 0
+        if headers_row_idx < len(df):
             for col_idx in range(start_col_idx, len(df.columns)):
-                header = df.iloc[self.names_row, col_idx]
-                if pd.notna(header):
-                    header_str = str(header).strip()
-                    if header_str and header_str.upper() != "OVERALL":
-                        # Get due date from row 3 (index 2)
-                        due_date = None
-                        if self.due_row < len(df):
-                            due_date_raw = df.iloc[self.due_row, col_idx]
-                            due_date = self._parse_date(due_date_raw)
-                        
-                        # Check if within date range
-                        if self.date_range:
-                            if due_date is None:
-                                continue
-                            start_date, end_date = self.date_range
-                            if not (start_date <= due_date.date() <= end_date):
-                                continue
-                        
-                        assessment_columns.append({
-                            "col_idx": col_idx,
-                            "name": header_str,
-                            "due_date": due_date
-                        })
+                header = df.iloc[headers_row_idx, col_idx]
+                if pd.isna(header):
+                    continue
+                header_str = str(header).strip()
+
+                # Ignore empty headers, OVERALL, or headers containing dashes
+                if not header_str:
+                    continue
+                if header_str.upper() == "OVERALL":
+                    continue
+                if any(ch in header_str for ch in ["-", "—", "–"]):
+                    continue
+
+                # Get due date from due_row
+                due_date: Optional[date] = None
+                if self.due_row < len(df):
+                    due_date_raw = df.iloc[self.due_row, col_idx]
+                    due_date = self._parse_date(due_date_raw)
+
+                # Date range filter (accept date or datetime in input)
+                if self.date_range:
+                    if due_date is None:
+                        continue
+                    start_date_raw, end_date_raw = self.date_range
+                    start_date = start_date_raw.date() if isinstance(start_date_raw, datetime) else start_date_raw
+                    end_date = end_date_raw.date() if isinstance(end_date_raw, datetime) else end_date_raw
+                    if start_date and end_date and start_date > end_date:
+                        start_date, end_date = end_date, start_date
+                    if start_date and end_date and not (start_date <= due_date <= end_date):
+                        continue
+
+                # Skip columns that are fully empty/dashes for all students
+                is_all_dashes = True
+                for row_idx in range(self.names_row, len(df)):
+                    cell_val = df.iloc[row_idx, col_idx]
+                    if not self._is_ignored_value(cell_val):
+                        is_all_dashes = False
+                        break
+                if is_all_dashes:
+                    continue
+
+                assessment_columns.append({
+                    "col_idx": col_idx,
+                    "name": header_str,
+                    "due_date": due_date,
+                })
         
         if not assessment_columns:
             st.warning(f"لم أجد أسماء تقييمات في H1 يميناً في ورقة '{sheet_name}'.")
@@ -207,7 +305,7 @@ class AssessmentAnalyzer:
             
             # Calculate metrics
             total_assessments = 0
-            solved = 0
+            solved_assessments = 0
             remaining = 0
             unsolved_titles = []
             
@@ -224,26 +322,27 @@ class AssessmentAnalyzer:
                     remaining += 1
                     unsolved_titles.append(assessment["name"])
                 else:
-                    solved += 1
+                    solved_assessments += 1
             
             # Skip students with no assessments
             if total_assessments == 0:
                 continue
             
             # Calculate solve percentage
-            solve_pct = (solved / total_assessments * 100) if total_assessments > 0 else 0
+            solve_pct = (solved_assessments / total_assessments * 100) if total_assessments > 0 else 0
             
             # Get category and recommendation
             category = self._get_category(solve_pct)
-            recommendation = self._get_recommendation(category, total_assessments, solved)
+            recommendation = self._get_recommendation(category, total_assessments, solved_assessments)
             
             results.append({
                 "student_name": student_name,
                 "class": level,
                 "section": section,
                 "subject": subject,
-                "total_material_solved": solved,
-                "total_assessments": remaining,
+                "total_material_solved": solved_assessments,
+                "total_assessments": total_assessments,
+                "remaining": remaining,
                 "unsolved_assessment_count": len(unsolved_titles),
                 "unsolved_titles": ", ".join(unsolved_titles) if unsolved_titles else "-",
                 "solve_pct": round(solve_pct, 2),
@@ -533,12 +632,12 @@ def generate_html_report(student_row: pd.Series) -> str:
                     <div class="metric-label">تقييمات منجزة</div>
                 </div>
                 <div class="metric">
-                    <div class="metric-value">{int(student_row['total_assessments'])}</div>
+                    <div class="metric-value">{int(student_row.get('remaining', student_row.get('unsolved_assessment_count', 0)))}</div>
                     <div class="metric-label">تقييمات متبقية</div>
                 </div>
                 <div class="metric">
-                    <div class="metric-value">{int(student_row['unsolved_assessment_count'])}</div>
-                    <div class="metric-label">غير منجزة</div>
+                    <div class="metric-value">{int(student_row.get('total_assessments', 0))}</div>
+                    <div class="metric-label">إجمالي التقييمات</div>
                 </div>
                 <div class="metric">
                     <div class="metric-value">{student_row['solve_pct']:.1f}%</div>
