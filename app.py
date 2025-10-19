@@ -136,7 +136,7 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date] = None, due_e
     منطق العد:
       - IGNORE: ('-', '—', '', 'I', 'AB', 'X', 'NAN', 'NONE') ← لا تدخل الإجمالي.
       - 'M' ← تدخل الإجمالي (غير منجزة).
-      - أي قيمة أخرى ← منجزة حتى لو كانت 0.
+      - أي قيمة أخرى ← منجزة حتى لو 0.
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
@@ -160,7 +160,7 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date] = None, due_e
                     all_dash = False; break
             if all_dash: continue
 
-            due_dt = _parse_excel_date(df.iloc[2, col_idx])  # صف 3 عادة
+            due_dt = _parse_excel_date(df.iloc[2, col_idx])  # صف 3 عادةً
             if filter_active:
                 if (due_dt is None) or not (due_start <= due_dt <= due_end):
                     continue
@@ -310,7 +310,6 @@ def chart_overall_gauge(pivot: pd.DataFrame) -> go.Figure:
 
 # ============== PDF أدوات ==============
 def register_font_from_upload(font_file) -> str:
-    """يسجل خط TTF مرفوع، أو يستخدم DejaVuSans كخيار افتراضي."""
     try:
         if font_file is not None:
             font_bytes = font_file.read()
@@ -319,13 +318,10 @@ def register_font_from_upload(font_file) -> str:
             return "ARFont"
     except Exception:
         pass
-    # احتياطي
     return "Helvetica"
 
 def ar(text: str) -> str:
-    """إخراج نص عربي مُشكّل RTL إذا توفّرت الحِزم."""
-    if not isinstance(text, str):
-        text = str(text)
+    if not isinstance(text, str): text = str(text)
     if AR_OK:
         return get_display(arabic_reshaper.reshape(text))
     return text
@@ -342,73 +338,54 @@ def make_student_pdf(school_name: str,
                      admin_deputy: str,
                      principal_name: str,
                      font_name: str) -> bytes:
-    """يُنشئ PDF يشابه القالب المرفق."""
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
-    W, H = A4  # نقاط
+    W, H = A4
 
-    # ألوان وهوية
     maroon = colors.HexColor("#8A1538")
     gold = colors.HexColor("#C9A646")
 
-    # رأس بسيط
+    # رأس
     c.setFillColor(maroon)
     c.rect(0, H-2*cm, W, 2*cm, fill=1, stroke=0)
     c.setFillColor(colors.white)
     c.setFont(font_name, 14)
     c.drawRightString(W-1.2*cm, H-1.2*cm, ar("إنجاز - تقرير أداء الطالب"))
 
-    # عنوان رئيسي
+    # عنوان
     y = H-2.6*cm
-    c.setFillColor(maroon)
-    c.setFont(font_name, 18)
+    c.setFillColor(maroon); c.setFont(font_name, 18)
     c.drawRightString(W-1.2*cm, y, ar("تقرير أداء الطالب - نظام قطر للتعليم"))
-    c.setFillColor(gold)
-    c.setLineWidth(2)
+    c.setFillColor(gold); c.setLineWidth(2)
     c.line(W-16*cm, y-0.25*cm, W-1.2*cm, y-0.25*cm)
 
-    # معلومات الطالب
-    y -= 1.2*cm
-    c.setFillColor(colors.black)
-    c.setFont(font_name, 12)
+    # معلومات
+    y -= 1.2*cm; c.setFillColor(colors.black); c.setFont(font_name, 12)
     c.drawRightString(W-1.2*cm, y, ar(f"اسم المدرسة: {school_name or '—'}"))
-    y -= 0.7*cm
-    c.drawRightString(W-1.2*cm, y, ar(f"اسم الطالب: {student_name}"))
-    y -= 0.7*cm
-    c.drawRightString(W-1.2*cm, y, ar(f"الصف: {grade or '—'}        الشعبة: {section or '—'}"))
+    y -= 0.7*cm; c.drawRightString(W-1.2*cm, y, ar(f"اسم الطالب: {student_name}"))
+    y -= 0.7*cm; c.drawRightString(W-1.2*cm, y, ar(f"الصف: {grade or '—'}        الشعبة: {section or '—'}"))
     y -= 1.0*cm
 
-    # جدول المواد
-    # الأعمدة: المادة | إجمالي | منجز | متبقي
+    # جدول
     col_titles = [ar("المادة"), ar("عدد التقييمات الإجمالي"), ar("عدد التقييمات المنجزة"), ar("عدد التقييمات المتبقية")]
     col_widths = [7.5*cm, 4.0*cm, 4.0*cm, 4.0*cm]
     x_right = W - 1.2*cm
     x_positions = [x_right - sum(col_widths[:i+1]) for i in range(len(col_widths))]
-
-    # رأس الجدول
-    c.setFillColor(maroon)
-    c.setFont(font_name, 12)
     row_h = 0.8*cm
+    c.setFillColor(maroon); c.setFont(font_name, 12)
     c.rect(x_right - sum(col_widths), y - row_h, sum(col_widths), row_h, fill=1, stroke=0)
     c.setFillColor(colors.white)
-    for i, title in enumerate(col_titles):
-        c.drawCentredString(x_positions[i] + col_widths[i]/2, y - 0.6*cm, title)
+    for i, t in enumerate(col_titles):
+        c.drawCentredString(x_positions[i] + col_widths[i]/2, y - 0.6*cm, t)
 
-    # صفوف الجدول
-    c.setFont(font_name, 11)
-    c.setFillColor(colors.black)
-    y -= row_h
-    total_solved = 0
-    total_total = 0
+    c.setFont(font_name, 11); c.setFillColor(colors.black); y -= row_h
+    total_solved = 0; total_total = 0
     for _, r in table_df.iterrows():
         if y < 3.5*cm:
-            c.showPage(); y = H-2*cm
-            c.setFont(font_name, 11)
-        sub = str(r['المادة'])
-        tot = int(r['إجمالي']); solv = int(r['منجز']); rem = int(max(tot - solv, 0))
+            c.showPage(); y = H-2*cm; c.setFont(font_name, 11)
+        sub = str(r['المادة']); tot = int(r['إجمالي']); solv = int(r['منجز']); rem = int(max(tot - solv, 0))
         total_solved += solv; total_total += tot
         y -= row_h
-        # خلفية خفيفة
         c.setFillColor(colors.HexColor("#F7F7F7"))
         c.rect(x_right - sum(col_widths), y, sum(col_widths), row_h, fill=1, stroke=0)
         c.setFillColor(colors.black)
@@ -416,60 +393,40 @@ def make_student_pdf(school_name: str,
         for i, v in enumerate(vals):
             c.drawCentredString(x_positions[i] + col_widths[i]/2, y + 0.25*cm, v)
 
-    # إحصائيات
-    y -= 1.2*cm
-    c.setFont(font_name, 12)
-    c.setFillColor(maroon)
+    # إحصاءات
+    y -= 1.2*cm; c.setFont(font_name, 12); c.setFillColor(maroon)
     c.drawRightString(W-1.2*cm, y, ar("الإحصائيات"))
-    c.setFillColor(colors.black)
-    y -= 0.7*cm
-    perc = overall_avg
-    c.drawRightString(W-1.2*cm, y, ar(f"منجز: {total_solved}    متبقي: {max(total_total - total_solved,0)}    نسبة حل التقييمات: {perc:.1f}%"))
+    y -= 0.7*cm; c.setFillColor(colors.black)
+    c.drawRightString(W-1.2*cm, y, ar(f"منجز: {total_solved}    متبقي: {max(total_total - total_solved,0)}    نسبة حل التقييمات: {overall_avg:.1f}%"))
 
-    # توصية المنسق
-    y -= 1.0*cm
-    c.setFillColor(maroon); c.drawRightString(W-1.2*cm, y, ar("توصية منسق المشاريع:"))
-    y -= 0.7*cm
-    c.setFillColor(colors.black)
+    # توصية
+    y -= 1.0*cm; c.setFillColor(maroon); c.drawRightString(W-1.2*cm, y, ar("توصية منسق المشاريع:"))
+    y -= 0.7*cm; c.setFillColor(colors.black)
     for line in (reco_text or "—").splitlines() or ["—"]:
         c.drawRightString(W-1.2*cm, y, ar(line)); y -= 0.6*cm
 
     # روابط
-    y -= 0.5*cm
-    c.setFillColor(maroon); c.drawRightString(W-1.2*cm, y, ar("روابط مهمة:"))
-    y -= 0.6*cm
-    c.setFillColor(colors.black)
+    y -= 0.5*cm; c.setFillColor(maroon); c.drawRightString(W-1.2*cm, y, ar("روابط مهمة:"))
+    y -= 0.6*cm; c.setFillColor(colors.black)
     c.drawRightString(W-1.2*cm, y, ar("رابط نظام قطر: https://portal.education.qa"))
-    y -= 0.6*cm
-    c.drawRightString(W-1.2*cm, y, ar("استعادة كلمة المرور: https://password.education.qa"))
-    y -= 0.6*cm
-    c.drawRightString(W-1.2*cm, y, ar("قناة قطر للتعليم: https://edu.tv.qa"))
+    y -= 0.6*cm; c.drawRightString(W-1.2*cm, y, ar("استعادة كلمة المرور: https://password.education.qa"))
+    y -= 0.6*cm; c.drawRightString(W-1.2*cm, y, ar("قناة قطر للتعليم: https://edu.tv.qa"))
 
-    # التوقيعات
-    y -= 1.0*cm
-    c.setFillColor(maroon); c.drawRightString(W-1.2*cm, y, ar("التوقيعات"))
-    y -= 0.8*cm
-    c.setFillColor(colors.black); c.setFont(font_name, 11)
-    sigs = [
-        ("منسق المشاريع", coordinator_name),
-        ("النائب الأكاديمي", academic_deputy),
-        ("النائب الإداري", admin_deputy),
-        ("مدير المدرسة", principal_name),
-    ]
-    box_w = (W - 2.4*cm) / 2 - 0.6*cm
-    box_h = 1.8*cm
+    # توقيعات
+    y -= 1.0*cm; c.setFillColor(maroon); c.drawRightString(W-1.2*cm, y, ar("التوقيعات"))
+    y -= 0.8*cm; c.setFillColor(colors.black); c.setFont(font_name, 11)
+    sigs = [("منسق المشاريع", coordinator_name), ("النائب الأكاديمي", academic_deputy),
+            ("النائب الإداري", admin_deputy), ("مدير المدرسة", principal_name)]
+    box_w = (W - 2.4*cm) / 2 - 0.6*cm; box_h = 1.8*cm
     for i, (title, name) in enumerate(sigs):
-        col = i % 2
-        row = i // 2
-        x0 = W - 1.2*cm - (col+1)*box_w - (col)*0.6*cm
-        y0 = y - row*(box_h+0.6*cm)
-        c.setStrokeColor(gold); c.rect(x0, y0 - box_h, box_w, box_h, fill=0, stroke=1)
+        col = i % 2; row = i // 2
+        x0 = W - 1.2*cm - (col+1)*box_w - (col)*0.6*cm; y0 = y - row*(box_h+0.6*cm)
+        c.setStrokeColor(colors.HexColor("#C9A646")); c.rect(x0, y0 - box_h, box_w, box_h, fill=0, stroke=1)
         c.setFillColor(colors.black)
         c.drawRightString(x0 + box_w - 0.4*cm, y0 - 0.5*cm, ar(f"{title} / {name or '—'}"))
         c.drawRightString(x0 + box_w - 0.4*cm, y0 - 1.3*cm, ar("التوقيع: __________________  التاريخ: __________"))
 
-    c.showPage()
-    c.save()
+    c.showPage(); c.save()
     return buf.getvalue()
 
 # =========================
@@ -512,12 +469,10 @@ with st.sidebar:
     uploaded_files = st.file_uploader("اختر ملفات Excel", type=["xlsx", "xls"], accept_multiple_files=True)
 
     st.subheader("⏳ فلتر تاريخ الاستحقاق")
-    # مدى واحد (من/إلى) لكي يظهر الفلتر دومًا واضحًا
     default_start = date.today().replace(day=1)
     default_end = date.today()
     due_range = st.date_input("اختر المدى (من — إلى)", value=(default_start, default_end), format="YYYY-MM-DD")
     due_start, due_end = (due_range if isinstance(due_range, tuple) else (None, None))
-
     st.caption("عند استخدام المدى يتم استبعاد الأعمدة بلا تاريخ استحقاق.")
 
     st.subheader("🔤 خط عربي للـPDF (اختياري)")
@@ -622,25 +577,21 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
         col_sel, col_reco = st.columns([2, 3])
         with col_sel:
             selected_student = st.selectbox("اختر الطالب", student_list, index=0)
-            # استخراج صف الصف/الشعبة من Pivot
             stu_row = pivot[pivot['الطالب'] == selected_student].head(1)
             stu_grade = str(stu_row['الصف'].iloc[0]) if not stu_row.empty else ''
             stu_section = str(stu_row['الشعبة'].iloc[0]) if not stu_row.empty else ''
         with col_reco:
             reco_text = st.text_area("توصية منسق المشاريع", value="", height=120, placeholder="اكتب التوصيات هنا...")
 
-        # جدول الطالب من السجلات الخام
         student_df = df[df['student_name'].str.strip().eq(str(selected_student).strip())].copy()
         student_table = student_df[['subject', 'total_count', 'completed_count']].copy()
         student_table = student_table.rename(columns={'subject':'المادة','total_count':'إجمالي','completed_count':'منجز'})
         student_table['متبقي'] = (student_table['إجمالي'] - student_table['منجز']).clip(lower=0).astype(int)
-        # متوسط الطالب
         overall_avg = student_df['solve_pct'].mean() if not student_df.empty else 0.0
 
         st.markdown("### معاينة سريعة")
         st.dataframe(student_table, use_container_width=True, height=260)
 
-        # إنشاء PDF
         font_name = register_font_from_upload(font_file)
         pdf_bytes = make_student_pdf(
             school_name=school_name or "",
@@ -671,11 +622,11 @@ st.markdown(f"""
 <div class="footer">
   <div class="line"></div>
   <img class="logo" src="https://i.imgur.com/XLef7tS.png" alt="Logo">
-  <div class="school">مدرسة عثمان بن عفان النموذجية-منسقة المشاريع الإلكتروني/ سحر عثمان</div>
+  <div class="school">مدرسة عثمان بن عفان النموذجية للبنين</div>
   <div class="rights">© {datetime.now().year} جميع الحقوق محفوظة</div>
   <div class="contact">للتواصل:
     <a href="mailto:S.mahgoub0101@education.qa">S.mahgoub0101@education.qa</a>
   </div>
-  <div class="credit">التحول الرقمي الذكي</div>
+  <div class="credit">تطوير وتصميم: قسم التحول الرقمي</div>
 </div>
 """, unsafe_allow_html=True)
