@@ -228,14 +228,12 @@ with col2:
     st.image("https://i.imgur.com/1bX5dzp.jpeg", width=120)
 
 col1, col2, col3 = st.columns([1, 2, 1])
-with col1:
-    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=60)
 with col2:
-    st.markdown("<div style='text-align: center;'><h2 style='margin: 10px 0;'>محلل التقييمات الأسبوعية</h2></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align: center;'></div>", unsafe_allow_html=True)
 with col3:
-    st.write("")
+    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=80)
 
-st.markdown("<div style='text-align: center;'><p style='font-size: 14px; color: #8B3A3A; font-weight: 600;'>وزارة التربية والتعليم والتعليم العالي</p><p style='font-size: 12px; color: #D4A574;'>لضمان تنمية رقمية مستدامة</p></div>", unsafe_allow_html=True)
+st.markdown("<div class='header-container'><h1>📊 محلل التقييمات الأسبوعية</h1><p style='font-size: 14px; margin: 10px 0; font-weight: 600;'>وزارة التربية والتعليم والتعليم العالي</p><p style='font-size: 13px; color: #D4A574; font-weight: 600; margin: 5px 0;'>ضمان تنمية رقمية مستدامة</p><p style='font-size: 12px; opacity: 0.9;'>نظام تحليل شامل وموثوق لنتائج الطلاب</p></div>", unsafe_allow_html=True)
 
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
@@ -243,7 +241,15 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
-    st.image("https://i.imgur.com/jFzu8As.jpeg", width=120)
+    st.markdown("""
+    <div style="text-align: center; margin: 20px 0;">
+        <div style="width: 140px; height: 140px; margin: 0 auto; border-radius: 50%; 
+                    border: 4px solid #8B3A3A; padding: 8px; box-shadow: 0 6px 20px rgba(139, 58, 58, 0.2); 
+                    background: white; display: flex; align-items: center; justify-content: center;">
+            <img src="https://i.imgur.com/jFzu8As.jpeg" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("---")
     st.header("الإعدادات")
     
