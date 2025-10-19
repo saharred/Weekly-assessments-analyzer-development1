@@ -116,8 +116,11 @@ class SubjectReportGenerator:
         """Format student list with statistics"""
         result = ""
         for idx, (_, student) in enumerate(students_df.iterrows(), 1):
+            remaining_val = int(student.get('remaining', student.get('unsolved_assessment_count', 0)))
+            total_val = int(student.get('total_assessments', student.get('total', 0)))
+            solved_val = int(student.get('total_material_solved', student.get('solved', 0)))
             result += f"""   {icon} {idx}. {student['student_name']}
-      النسبة: {student['solve_pct']:.2f}% | منجز: {int(student['total_material_solved'])} | متبقي: {int(student['total_assessments'])}
+      النسبة: {student['solve_pct']:.2f}% | منجز: {solved_val} | متبقي: {remaining_val} | إجمالي: {total_val}
 """
         return result
     
@@ -431,7 +434,7 @@ class EmailSender:
                         <span class="badge badge-{badge_class}">{badge_text}</span>
                     </div>
                     <div class="student-stats">
-                        النسبة: {student['solve_pct']:.2f}% | منجز: {int(student['total_material_solved'])} | متبقي: {int(student['total_assessments'])}
+                        النسبة: {student['solve_pct']:.2f}% | منجز: {int(student.get('total_material_solved', 0))} | متبقي: {int(student.get('remaining', student.get('unsolved_assessment_count', 0)))} | إجمالي: {int(student.get('total_assessments', 0))}
                     </div>
                 </div>
 """
