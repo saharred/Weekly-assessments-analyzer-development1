@@ -5,3 +5,6 @@ openpyxl
 plotly
 pillow
 python-dateutil
+fpdf2
+arabic-reshaper
+python-bidi
