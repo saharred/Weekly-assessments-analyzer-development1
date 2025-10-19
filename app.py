@@ -163,18 +163,26 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             return text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ـ", "")
         
         # محاولة استخراج اليوم + الشهر بالعربية
-        # Pattern: رقم + فاصل اختياري + نص الشهر
-        pattern = r"(\d{1,2})\s*[-/\s]*\s*([^\d\s]+)"
-        match = re.search(pattern, s)
+        # 1) اليوم أولاً: "2 أكتوبر"
+        pattern_day_first = r"(\d{1,2})\s*[-/\s]*\s*([^\d]+)"
+        # 2) الشهر أولاً: "أكتوبر 2" (يسمح بمسافة داخل اسم الشهر)
+        pattern_month_first = r"([^\d]+)\s*[-/\s]*\s*(\d{1,2})"
+
+        match = re.search(pattern_day_first, s) or re.search(pattern_month_first, s)
         
         if match:
             try:
-                day = int(match.group(1))
-                month_name = match.group(2).strip()
-                
+                # حدد ترتيب المجموعات بحسب النمط المطابق
+                if re.fullmatch(pattern_day_first, match.group(0)):
+                    day = int(match.group(1))
+                    month_name = match.group(2).strip()
+                else:
+                    month_name = match.group(1).strip()
+                    day = int(match.group(2))
+
                 # البحث في خريطة الأشهر
                 month = None
-                
+
                 # بحث مباشر
                 if month_name in arabic_months:
                     month = arabic_months[month_name]
@@ -185,16 +193,14 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
                         if normalize_hamza(key) == normalized_name:
                             month = val
                             break
-                
+
                 if month:
                     # محاولة إنشاء التاريخ
                     try:
-                        # محاولة 1: استخدام التاريخ مباشرة
                         return date(default_year, month, day)
                     except ValueError:
-                        # محاولة 2: تقليم اليوم إذا كان خارج النطاق
                         try:
-                            safe_day = min(day, 28)  # أقل عدد أيام مضمون في أي شهر
+                            safe_day = min(day, 28)
                             return date(default_year, month, safe_day)
                         except ValueError:
                             pass

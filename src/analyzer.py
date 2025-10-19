@@ -135,11 +135,21 @@ class AssessmentAnalyzer:
             def normalize_hamza(text: str) -> str:
                 return text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ـ", "")
 
-            m = re.search(r"(\d{1,2})\s*[-/\s]*\s*([^\d\s]+)", s)
+            # يدعم الترتيبين: "2 أكتوبر" و"أكتوبر 2"
+            pattern_day_first = r"(\d{1,2})\s*[-/\s]*\s*([^\d\s]+)"
+            pattern_month_first = r"([^\d\s]+)\s*[-/\s]*\s*(\d{1,2})"
+
+            m = re.search(pattern_day_first, s) or re.search(pattern_month_first, s)
             if m:
                 try:
-                    day = int(m.group(1))
-                    month_name = m.group(2).strip()
+                    # تحديد الترتيب
+                    if re.fullmatch(pattern_day_first, m.group(0)):
+                        day = int(m.group(1))
+                        month_name = m.group(2).strip()
+                    else:
+                        month_name = m.group(1).strip()
+                        day = int(m.group(2))
+
                     month = arabic_months.get(month_name)
                     if month is None:
                         nm = normalize_hamza(month_name)
