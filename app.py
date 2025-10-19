@@ -497,10 +497,30 @@ with col1:
     st.image("https://i.imgur.com/QfVfT9X.jpeg", width=120)
     st.markdown("</div>", unsafe_allow_html=True)
 
+with col3:
+    st.markdown("<div class='logo-right-group'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/jFzu8As.jpeg", width=120)
+    st.markdown("</div>", unsafe_allow_html=True)
+
 # Main Header
 st.markdown("""
 <div class='header-container'>
-    <h1>📊 محلل التقييمات الأسبوعية</h1>
+    <div style='display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 20px;'>
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Analytics Dashboard Icon -->
+            <rect x="4" y="4" width="40" height="40" rx="4" fill="#C9A646" opacity="0.15"/>
+            <path d="M12 32V24M18 32V20M24 32V16M30 32V22M36 32V18" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="12" cy="24" r="2.5" fill="#C9A646"/>
+            <circle cx="18" cy="20" r="2.5" fill="#C9A646"/>
+            <circle cx="24" cy="16" r="2.5" fill="#C9A646"/>
+            <circle cx="30" cy="22" r="2.5" fill="#C9A646"/>
+            <circle cx="36" cy="18" r="2.5" fill="#C9A646"/>
+            <path d="M12 24L18 20L24 16L30 22L36 18" stroke="#C9A646" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1 style='margin: 0; font-size: 40px; font-weight: 700; line-height: 1.25; color: #FFFFFF; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); letter-spacing: -0.01em;'>
+            نظام قطر للتعليم - محلل التقييمات الأسبوعية
+        </h1>
+    </div>
     <p class='subtitle'>وزارة التربية والتعليم والتعليم العالي</p>
     <p class='accent-line'>ضمان تنمية رقمية مستدامة</p>
     <p class='description'>نظام تحليل شامل وموثوق لنتائج الطلاب</p>
