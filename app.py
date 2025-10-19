@@ -228,8 +228,16 @@ with col2:
     st.image("https://i.imgur.com/1bX5dzp.jpeg", width=120)
 
 col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.markdown(f"<div style='text-align: center;'></div>", unsafe_allow_html=True)
+with col1:
+    st.markdown("""
+    <div style="text-align: center; margin: 20px 0;">
+        <div style="width: 100px; height: 100px; margin: 0 auto; border-radius: 50%; 
+                    border: 3px solid white; padding: 5px; box-shadow: 0 4px 12px rgba(139, 58, 58, 0.2); 
+                    background: white; display: flex; align-items: center; justify-content: center;">
+            <img src="https://i.imgur.com/jFzu8As.jpeg" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 with col3:
     st.image("https://i.imgur.com/1bX5dzp.jpeg", width=80)
 
