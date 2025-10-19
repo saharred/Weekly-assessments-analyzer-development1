@@ -21,7 +21,7 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
     * { font-family: 'Cairo', 'Arial', sans-serif; }
-    .main { background: linear-gradient(135deg, #f8f9fa 0%, #f0ebe5 100%); }
+    .main { background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%); }
     .header-container {
         background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%);
         padding: 40px; border-radius: 20px; color: white; text-align: center;
@@ -55,16 +55,6 @@ st.markdown("""
     h1, h2, h3, h4, h5, h6 { color: #8B3A3A; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
-
-MINISTRY_LOGO_SVG = """
-<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="60" cy="60" r="58" fill="white" stroke="#8B3A3A" stroke-width="2"/>
-    <rect x="30" y="30" width="60" height="40" fill="#8B3A3A" rx="4"/>
-    <polygon points="60,70 45,50 75,50" fill="white"/>
-    <text x="60" y="95" font-family="Arial" font-size="9" font-weight="bold" text-anchor="middle" fill="#8B3A3A">قطر</text>
-    <text x="60" y="106" font-family="Arial" font-size="8" text-anchor="middle" fill="#8B3A3A">التعليم</text>
-</svg>
-"""
 
 def parse_sheet_name(sheet_name):
     try:
@@ -168,8 +158,8 @@ def analyze_excel_file(file, sheet_name):
         
         return results
     except Exception as e:
-        logger.error(f"خطأ في تحليل الورقة: {str(e)}")
-        st.error(f"خطأ في تحليل الورقة: {str(e)}")
+        logger.error(f"خطأ: {str(e)}")
+        st.error(f"خطأ: {str(e)}")
         return []
 
 @st.cache_data
@@ -223,16 +213,13 @@ def create_pivot_table(df):
         logger.error(f"خطأ: {str(e)}")
         return pd.DataFrame()
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=120)
+st.markdown("")
+st.markdown("")
+st.markdown("")
 
 col1, col2, col3 = st.columns([1, 1.5, 1])
 with col3:
     st.image("https://i.imgur.com/jFzu8As.jpeg", width=100)
-
-st.markdown("")
-st.markdown("")
 
 st.markdown("<div class='header-container'><h1>📊 محلل التقييمات الأسبوعية</h1><p style='font-size: 14px; margin: 10px 0; font-weight: 600;'>وزارة التربية والتعليم والتعليم العالي</p><p style='font-size: 13px; color: #D4A574; font-weight: 600; margin: 5px 0;'>ضمان تنمية رقمية مستدامة</p><p style='font-size: 12px; opacity: 0.9;'>نظام تحليل شامل وموثوق لنتائج الطلاب</p></div>", unsafe_allow_html=True)
 
@@ -242,6 +229,14 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
+    col_left, col_mid, col_right = st.columns([1, 1, 1])
+    with col_left:
+        st.image("https://i.imgur.com/1bX5dzp.jpeg", width=70)
+    with col_right:
+        st.image("https://i.imgur.com/QfVfT9X.jpeg", width=70)
+    
+    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/3ASAXDc.png' style='width: 120px; height: auto;'></div>", unsafe_allow_html=True)
+    
     st.markdown("---")
     st.header("الإعدادات")
     
@@ -278,14 +273,6 @@ with st.sidebar:
     st.subheader("معلومات المدرسة")
     school_name = st.text_input("اسم المدرسة", placeholder="مدرسة قطر النموذجية")
     
-    st.subheader("الشعار")
-    uploaded_logo = st.file_uploader("ارفع شعار", type=["png", "jpg", "jpeg"])
-    logo_base64 = ""
-    if uploaded_logo:
-        logo_base64 = base64.b64encode(uploaded_logo.read()).decode()
-        st.success("تم رفع الشعار")
-    
-    st.markdown("---")
     st.subheader("التوقيعات")
     coordinator_name = st.text_input("منسق المشاريع")
     academic_deputy = st.text_input("النائب الأكاديمي")
