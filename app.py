@@ -22,10 +22,9 @@ QATAR_GOLD   = (201, 166, 70)
 
 # ---------------- Foundation ----------------
 def setup_app():
-    """يثبّت البنية الأساسية للتطبيق مرة واحدة (تهيئة، CSS، حالة، لوجر)."""
+    """تهيئة الصفحة والستايل وحالة الجلسة مرة واحدة."""
     APP_TITLE = "إنجاز -تحليل القييمات الأسبوعية على نظام قطر للتعليم"
 
-    # صفحة
     st.set_page_config(
         page_title=APP_TITLE,
         page_icon="https://i.imgur.com/XLef7tS.png",
@@ -33,27 +32,23 @@ def setup_app():
         initial_sidebar_state="expanded"
     )
 
-    # لوجر
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("ingaz-app")
 
-    # حالة الجلسة الأساسية
     defaults = {
         "analysis_results": None,
         "pivot_table": None,
-        "font_info": None,           # سيتحدد تلقائيًا
+        "font_info": None,     # يُضبط تلقائياً
         "logo_path": None,
-        "selected_sheets": [],       # [(file, sheet), ...]
+        "selected_sheets": [], # [(file, sheet), ...]
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # ضبط الخط العربي الافتراضي مرة واحدة
     if st.session_state.font_info is None:
         st.session_state.font_info = prepare_default_font()
 
-    # CSS
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -70,15 +65,55 @@ def setup_app():
     .header-container .subtitle{font-size:15px;font-weight:700;margin:0 0 4px}
     .header-container .accent-line{font-size:12px;color:#C9A646;font-weight:700;margin:0 0 6px}
     .header-container .description{font-size:12px;opacity:.95;margin:0}
-    [data-testid="stSidebar"]{background:linear-gradient(180deg,#8A1538 0%,#6B1029 100%)!important;
-      border-right:2px solid #C9A646;box-shadow:4px 0 16px rgba(0,0,0,.15)}
-    [data-testid="stSidebar"] *{color:#fff!important}
+
+    [data-testid="stSidebar"]{
+      background:linear-gradient(180deg,#8A1538 0%,#6B1029 100%)!important;
+      border-right:2px solid #C9A646;box-shadow:4px 0 16px rgba(0,0,0,.15)
+    }
+    /* تبقى النصوص العامة باللون الأبيض */
+    [data-testid="stSidebar"] *{ color:#fff !important; }
+
+    /* ✅ تصحيح حقول الإدخال في الشريط الجانبي: نص أسود وخلفية بيضاء */
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] select {
+      color:#000 !important;
+      background:#fff !important;
+      caret-color:#000 !important;
+    }
+    /* combobox (multiselect/select) */
+    [data-testid="stSidebar"] div[role="combobox"] input{
+      color:#000 !important; background:#fff !important;
+    }
+    /* text/number inputs */
+    [data-testid="stSidebar"] .stTextInput input,
+    [data-testid="stSidebar"] .stNumberInput input{
+      color:#000 !important; background:#fff !important;
+    }
+    /* date input (BaseWeb) */
+    [data-testid="stSidebar"] .stDateInput [data-baseweb="input"] > div{
+      background:#fff !important; color:#000 !important;
+    }
+    [data-testid="stSidebar"] .stDateInput [data-baseweb="input"] input{
+      color:#000 !important; background:#fff !important;
+    }
+    /* placeholder */
+    [data-testid="stSidebar"] ::placeholder{ color:#444 !important; opacity:1 !important; }
+    /* borders */
+    [data-testid="stSidebar"] .stTextInput > div > div,
+    [data-testid="stSidebar"] .stNumberInput > div > div,
+    [data-testid="stSidebar"] .stDateInput [data-baseweb="input"]{
+      border:1px solid rgba(0,0,0,.2) !important; box-shadow:none !important;
+    }
+
     .chart-container{background:#fff;border:2px solid #E5E7EB;border-right:5px solid #8A1538;
       border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
     .chart-title{font-size:20px;font-weight:800;color:#8A1538;text-align:center;margin-bottom:10px}
+
     .footer{margin-top:22px;background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
       color:#fff;border-radius:10px;padding:12px 10px;text-align:center;box-shadow:0 6px 18px rgba(138,21,56,.20);position:relative}
-    .footer .line{width:100%;height:3px;background:linear-gradient(90deg,#C9A646 0%,#E8D4A0 50%,#C9A646 100%);position:absolute;top:0;left:0}
+    .footer .line{width:100%;height:3px;background:linear-gradient(90deg,#C9A646 0%,#E8D4A0 50%,#C9A646 100%);
+      position:absolute;top:0;left:0}
     .footer .school{font-weight:800;font-size:15px;margin:2px 0 4px}
     .footer .rights{font-weight:700;font-size:12px;margin:0 0 4px;opacity:.95}
     .footer .contact{font-size:12px;margin-top:2px}
@@ -87,7 +122,6 @@ def setup_app():
     </style>
     """, unsafe_allow_html=True)
 
-    # هيدر
     st.markdown(f"""
     <div class='header-container'>
       <div style='display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom: 10px;'>
@@ -118,23 +152,15 @@ def rtl(text: str) -> str:
     return text
 
 def parse_date_range(d):
-    """يحّول قيمة st.date_input لأي شكل إلى (start,end)."""
-    if d is None:
-        return None, None
+    if d is None: return None, None
     if isinstance(d, (list, tuple)):
         if len(d) >= 2: return d[0], d[1]
         if len(d) == 1: return d[0], d[0]
         return None, None
-    if isinstance(d, date):
-        return d, d
+    if isinstance(d, date): return d, d
     return None, None
 
 def prepare_default_font() -> Tuple[str, Optional[str]]:
-    """
-    يثبت خطًا عربيًا افتراضيًا بدون رفع ملف من المستخدم:
-    - DejaVuSans إن كان متاحًا.
-    - وإلا نعتمد خط PDF الافتراضي (سيعرض إنجليزي فقط).
-    """
     font_name = "ARFont"
     candidate = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     if os.path.exists(candidate):
@@ -142,15 +168,12 @@ def prepare_default_font() -> Tuple[str, Optional[str]]:
     return "", None
 
 def prepare_logo_file(logo_file) -> Optional[str]:
-    if logo_file is None:
-        return None
+    if logo_file is None: return None
     try:
         ext = os.path.splitext(logo_file.name)[1].lower()
-        if ext not in [".png", ".jpg", ".jpeg"]:
-            return None
+        if ext not in [".png", ".jpg", ".jpeg"]: return None
         path = f"/tmp/school_logo{ext}"
-        with open(path, "wb") as f:
-            f.write(logo_file.read())
+        with open(path, "wb") as f: f.write(logo_file.read())
         return path
     except Exception:
         return None
@@ -175,14 +198,12 @@ def make_student_pdf_fpdf(
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.add_page()
     if font_path:
-        try:
-            pdf.add_font(font_name, "", font_path, uni=True)
-        except Exception:
-            font_name = ""
+        try: pdf.add_font(font_name, "", font_path, uni=True)
+        except Exception: font_name = ""
 
     def set_font(size=12, color=(0,0,0)):
         if font_name: pdf.set_font(font_name, size=size)
-        else:         pdf.set_font("Helvetica", size=size)
+        else: pdf.set_font("Helvetica", size=size)
         pdf.set_text_color(*color)
 
     # شريط أعلى + شعار
@@ -199,7 +220,7 @@ def make_student_pdf_fpdf(
     pdf.set_y(28); pdf.cell(0,10, rtl("تقرير أداء الطالب - نظام قطر للتعليم"), ln=1, align="R")
     pdf.set_draw_color(*QATAR_GOLD); pdf.set_line_width(0.6); pdf.line(30,38,200,38)
 
-    # معلومات (أسود مثبت)
+    # معلومات (أسود)
     set_font(12, (0,0,0))
     pdf.ln(6)
     pdf.cell(0,8, rtl(f"اسم المدرسة: {school_name or '—'}"), ln=1, align="R")
@@ -215,7 +236,6 @@ def make_student_pdf_fpdf(
     for w, h in zip(widths, headers): pdf.cell(w,9,h,border=0,align="C",fill=True)
     pdf.ln(9)
 
-    # صفوف الجدول (أسود مثبت)
     set_font(11, (0,0,0))
     total_total=0; total_solved=0
     for _, r in table_df.iterrows():
@@ -227,7 +247,7 @@ def make_student_pdf_fpdf(
         pdf.cell(widths[2],8, str(solv),0, 0, "C", True)
         pdf.cell(widths[3],8, str(rem), 0, 1, "C", True)
 
-    # إحصاءات (أسود مثبت)
+    # إحصاءات
     pdf.ln(3); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("الإحصائيات"), ln=1, align="R")
     set_font(12, (0,0,0))
     pdf.cell(0,8, rtl(f"منجز: {total_solved}    متبقي: {max(total_total-total_solved,0)}    نسبة حل التقييمات: {overall_avg:.1f}%"), ln=1, align="R")
@@ -245,7 +265,7 @@ def make_student_pdf_fpdf(
     pdf.cell(0,7, rtl("استعادة كلمة المرور: https://password.education.qa"), ln=1, align="R")
     pdf.cell(0,7, rtl("قناة قطر للتعليم: https://edu.tv.qa"), ln=1, align="R")
 
-    # توقيعات (نص أسود مثبت دائمًا)
+    # توقيعات (أسود دائمًا)
     pdf.ln(4); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("التوقيعات"), ln=1, align="R")
     set_font(11, (0,0,0)); pdf.set_draw_color(*QATAR_GOLD)
     boxes=[("منسق المشاريع",coordinator_name),("النائب الأكاديمي",academic_deputy),
@@ -254,7 +274,7 @@ def make_student_pdf_fpdf(
     for i,(t,n) in enumerate(boxes):
         row=i//2; col=i%2; x=x_right if col==0 else x_left; yb=y0+row*(h+6)
         pdf.rect(x,yb,w,h)
-        set_font(11, (0,0,0))  # تأكيد اللون الأسود داخل كل مربع
+        set_font(11, (0,0,0))
         pdf.set_xy(x,yb+3);  pdf.cell(w-4,6, rtl(f"{t} / {n or '—'}"), align="R")
         pdf.set_xy(x,yb+10); pdf.cell(w-4,6, rtl("التوقيع: __________________    التاريخ: __________"), align="R")
 
@@ -290,7 +310,7 @@ def _parse_excel_date(x) -> Optional[date]:
 
 @st.cache_data
 def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end: Optional[date]=None):
-    """يحصر الأعمدة ضمن مدى الاستحقاق (من/إلى). الأعمدة بلا تاريخ تُستبعد عند تفعيل الفلتر."""
+    """يعتمد فلتر الاستحقاق (إن أُدخل)، ويستبعد الأعمدة بلا تاريخ عند تفعيله."""
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
@@ -299,16 +319,13 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
         if filter_active and due_start > due_end:
             due_start, due_end = due_end, due_start
 
-        # انتقاء أعمدة التقييم
         assessment_columns=[]
         for c in range(7, df.shape[1]):  # H =
             title = df.iloc[0,c] if c < df.shape[1] else None
             if pd.isna(title): break
-
             # تجاهل أعمدة كلها شرطات
             if all((str(df.iloc[r,c]).strip() in ['-','—','', 'nan']) for r in range(4, min(len(df),20))):
                 continue
-
             due_dt = _parse_excel_date(df.iloc[2,c])  # عادة صف 3
             if filter_active:
                 if (due_dt is None) or not (due_start <= due_dt <= due_end):
@@ -487,7 +504,7 @@ with st.sidebar:
         due_start, due_end = due_end, due_start
     st.caption("عند استخدام المدى يتم استبعاد الأعمدة بلا تاريخ استحقاق.")
 
-    # شعار المدرسة فقط (لا يوجد فلتر/مدخل لغة بعد الآن)
+    # شعار المدرسة (اختياري)
     st.subheader("🖼️ شعار المدرسة (اختياري)")
     logo_file = st.file_uploader("ارفع شعار PNG/JPG", type=["png","jpg","jpeg"], key="logo_file")
     st.session_state.logo_path = prepare_logo_file(logo_file)
@@ -583,7 +600,7 @@ if pivot is not None and not pivot.empty:
         table = sdata[['subject','total_count','completed_count']].rename(columns={
             'subject':'المادة','total_count':'إجمالي','completed_count':'منجز'
         })
-        table['متبقي'] = (table['إجمالي'] - table['منجز']).clip(lower=0).astype(int)
+        table[ 'متبقي'] = (table['إجمالي'] - table['منجز']).clip(lower=0).astype(int)
         avg_stu = float(sdata['solve_pct'].mean()) if not sdata.empty else 0.0
 
         st.markdown("### معاينة سريعة")
