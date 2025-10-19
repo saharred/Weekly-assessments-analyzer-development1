@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 import os, io, re, zipfile, logging
-from datetime import datetime, date
+from datetime import datetime
 from typing import Tuple, Optional, List
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 
 # ========= PDF (fpdf2) + Arabic RTL =========
@@ -38,9 +37,9 @@ def setup_app():
     defaults = {
         "analysis_results": None,
         "pivot_table": None,
-        "font_info": None,     # يُضبط تلقائياً
+        "font_info": None,
         "logo_path": None,
-        "selected_sheets": [], # [(file, sheet), ...]
+        "selected_sheets": [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -49,6 +48,7 @@ def setup_app():
     if st.session_state.font_info is None:
         st.session_state.font_info = prepare_default_font()
 
+    # ---------- CSS ----------
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -73,38 +73,18 @@ def setup_app():
     /* تبقى النصوص العامة باللون الأبيض */
     [data-testid="stSidebar"] *{ color:#fff !important; }
 
-    /* ✅ تصحيح حقول الإدخال في الشريط الجانبي: نص أسود وخلفية بيضاء */
+    /* ✅ حقول الإدخال في الشريط الجانبي: نص أسود وخلفية بيضاء */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] textarea,
     [data-testid="stSidebar"] select {
-      color:#000 !important;
-      background:#fff !important;
-      caret-color:#000 !important;
+      color:#000 !important; background:#fff !important; caret-color:#000 !important;
     }
-    /* combobox (multiselect/select) */
-    [data-testid="stSidebar"] div[role="combobox"] input{
-      color:#000 !important; background:#fff !important;
-    }
-    /* text/number inputs */
+    [data-testid="stSidebar"] div[role="combobox"] input{ color:#000 !important; background:#fff !important; }
     [data-testid="stSidebar"] .stTextInput input,
-    [data-testid="stSidebar"] .stNumberInput input{
-      color:#000 !important; background:#fff !important;
-    }
-    /* date input (BaseWeb) */
-    [data-testid="stSidebar"] .stDateInput [data-baseweb="input"] > div{
-      background:#fff !important; color:#000 !important;
-    }
-    [data-testid="stSidebar"] .stDateInput [data-baseweb="input"] input{
-      color:#000 !important; background:#fff !important;
-    }
-    /* placeholder */
+    [data-testid="stSidebar"] .stNumberInput input{ color:#000 !important; background:#fff !important; }
     [data-testid="stSidebar"] ::placeholder{ color:#444 !important; opacity:1 !important; }
-    /* borders */
     [data-testid="stSidebar"] .stTextInput > div > div,
-    [data-testid="stSidebar"] .stNumberInput > div > div,
-    [data-testid="stSidebar"] .stDateInput [data-baseweb="input"]{
-      border:1px solid rgba(0,0,0,.2) !important; box-shadow:none !important;
-    }
+    [data-testid="stSidebar"] .stNumberInput > div > div{ border:1px solid rgba(0,0,0,.2) !important; box-shadow:none !important; }
 
     .chart-container{background:#fff;border:2px solid #E5E7EB;border-right:5px solid #8A1538;
       border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
@@ -137,7 +117,7 @@ def setup_app():
       </div>
       <p class='subtitle'>لوحة مهنية لقياس التقدم وتحليل النتائج</p>
       <p class='accent-line'>هوية إنجاز • دعم العربية الكامل</p>
-      <p class='description'>اختر الملفات وفعّل فلتر التاريخ للنتائج الأدق</p>
+      <p class='description'>اختر الملفات (يتم تجاهل الأعمدة التي تحتوي على شرطة - في العناوين)</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -150,15 +130,6 @@ def rtl(text: str) -> str:
     if AR_OK:
         return get_display(arabic_reshaper.reshape(text))
     return text
-
-def parse_date_range(d):
-    if d is None: return None, None
-    if isinstance(d, (list, tuple)):
-        if len(d) >= 2: return d[0], d[1]
-        if len(d) == 1: return d[0], d[0]
-        return None, None
-    if isinstance(d, date): return d, d
-    return None, None
 
 def prepare_default_font() -> Tuple[str, Optional[str]]:
     font_name = "ARFont"
@@ -299,43 +270,48 @@ def parse_sheet_name(sheet_name: str):
     except Exception:
         return sheet_name,"",""
 
-def _parse_excel_date(x) -> Optional[date]:
-    try:
-        d = pd.to_datetime(x)
-        if pd.isna(d): return None
-        if 2000 <= d.year <= 2100: return d.date()
-        return None
-    except Exception:
-        return None
-
 @st.cache_data
-def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end: Optional[date]=None):
-    """يعتمد فلتر الاستحقاق (إن أُدخل)، ويستبعد الأعمدة بلا تاريخ عند تفعيله."""
+def analyze_excel_file(file, sheet_name):
+    """
+    - لا يوجد فلتر تاريخ.
+    - تجاهل أي عمود عنوانه يحتوي على شرطة '-' أو '—' أو '–'.
+    - تجاهل الأعمدة التي كلها شرطات (كما كان).
+    - تجاهل الخلايا '-'/'—'/فارغة.. ولا تُحتسب ضمن الإجمالي.
+    - الخلية 'M' تُحتسب "مستحق غير منجز" (تزيد الإجمالي وتُضاف للمتبقي).
+    """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
 
-        filter_active = (due_start is not None and due_end is not None)
-        if filter_active and due_start > due_end:
-            due_start, due_end = due_end, due_start
-
         assessment_columns=[]
-        for c in range(7, df.shape[1]):  # H =
+        for c in range(7, df.shape[1]):  # بدءًا من العمود H
             title = df.iloc[0,c] if c < df.shape[1] else None
             if pd.isna(title): break
-            # تجاهل أعمدة كلها شرطات
-            if all((str(df.iloc[r,c]).strip() in ['-','—','', 'nan']) for r in range(4, min(len(df),20))):
+            t = str(title).strip()
+
+            # 1) تجاهل الأعمدة التي عنوانها يحتوي على شرطة
+            if any(ch in t for ch in ['-', '—', '–']):
                 continue
-            due_dt = _parse_excel_date(df.iloc[2,c])  # عادة صف 3
-            if filter_active:
-                if (due_dt is None) or not (due_start <= due_dt <= due_end):
-                    continue
-            assessment_columns.append({'index':c,'title':str(title).strip(),'due':due_dt})
+
+            # 2) تجاهل الأعمدة التي تحتوي فقط على شرطات/فراغات (نفس المنطق السابق)
+            all_dash = True
+            for r in range(4, min(len(df), 20)):
+                val = df.iloc[r, c]
+                if pd.notna(val):
+                    s = str(val).strip()
+                    if s not in ['-','—','', 'nan', 'NaN', 'None']:
+                        all_dash = False
+                        break
+            if all_dash:
+                continue
+
+            assessment_columns.append({'index':c, 'title':t})
 
         if not assessment_columns:
             return []
 
-        results=[]; IGNORE={'-','—','','I','AB','X','NAN','NONE'}
+        results=[]
+        IGNORE={'-','—','','NAN','NaN','NONE','None'}
         for r in range(4, len(df)):
             student = df.iloc[r,0]
             if pd.isna(student) or str(student).strip()=="": continue
@@ -345,11 +321,15 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
             for col in assessment_columns:
                 c = col['index']; title = col['title']
                 if c >= df.shape[1]: continue
-                s = ("" if pd.isna(df.iloc[r,c]) else str(df.iloc[r,c])).strip().upper()
-                if s in IGNORE:  # لا يُحتسب
+                raw = df.iloc[r,c]
+                s = "" if pd.isna(raw) else str(raw).strip().upper()
+
+                if s in IGNORE:
+                    # تجاهل كامل — لا يضاف للإجمالي
                     continue
-                if s == 'M':     # مستحق غير منجز
+                if s == 'M':  # مستحق غير منجز
                     total += 1; pending.append(title); continue
+                # أي قيمة أخرى تُعدّ إنجازًا
                 total += 1; done += 1
 
             pct = (done/total*100) if total>0 else 0.0
@@ -493,18 +473,7 @@ with st.sidebar:
                 chosen = st.multiselect("اختر الأوراق للتحليل", all_sheets, default=all_sheets[:1])
             selected_sheets = [sheet_file_map[c] for c in chosen]
 
-    # خزّن الاختيار (حتى لو فاضي الآن)
     st.session_state.selected_sheets = selected_sheets
-
-    # فلتر تاريخ الاستحقاق
-    st.subheader("⏳ فلتر تاريخ الاستحقاق")
-    default_start = date.today().replace(day=1)
-    default_end   = date.today()
-    due_input = st.date_input("اختر المدى (من — إلى)", value=(default_start, default_end), format="YYYY-MM-DD", key="due_input")
-    due_start, due_end = parse_date_range(due_input)
-    if due_start and due_end and due_start > due_end:
-        due_start, due_end = due_end, due_start
-    st.caption("عند استخدام المدى يتم استبعاد الأعمدة بلا تاريخ استحقاق.")
 
     # شعار المدرسة (اختياري)
     st.subheader("🖼️ شعار المدرسة (اختياري)")
@@ -521,7 +490,6 @@ with st.sidebar:
     principal_name   = st.text_input("مدير/ة المدرسة")
 
     st.markdown("---")
-    # ✅ الزر مفعّل طالما فيه ملفات — حتى لو الأوراق غير محددة الآن
     run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary",
                              disabled=not uploaded_files)
 
@@ -529,10 +497,8 @@ with st.sidebar:
 if not uploaded_files:
     st.info("📤 من الشريط الجانبي ارفع ملفات Excel للبدء في التحليل")
 elif run_analysis:
-    # ✅ لو ما اختيرت أوراق، نحلّي كلها تلقائيًا
     sheets_to_use = st.session_state.selected_sheets
     if not sheets_to_use:
-        # إعادة بناء كل الأوراق احتياطيًا
         tmp = []
         for file in uploaded_files:
             try:
@@ -549,38 +515,20 @@ elif run_analysis:
         with st.spinner("⏳ جاري التحليل..."):
             rows=[]
             for file, sheet in sheets_to_use:
-                rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
+                rows.extend(analyze_excel_file(file, sheet))
             if rows:
                 df = pd.DataFrame(rows)
                 st.session_state.analysis_results = df
                 st.session_state.pivot_table = create_pivot_table(df)
                 st.success(f"✅ تم تحليل {len(st.session_state.pivot_table)} طالب عبر {df['subject'].nunique()} مادة")
             else:
-                st.warning("⚠️ لم يتم استخراج بيانات من الأوراق المحددة. تأكد من تنسيق الجداول وتواريخ الاستحقاق.")
+                st.warning("⚠️ لم يتم استخراج بيانات من الأوراق المحددة. تأكد من تنسيق الجداول.")
 
 # عرض
 pivot = st.session_state.pivot_table
 df    = st.session_state.analysis_results
 
-if pivot is not None and not pivot.empty:
-    st.subheader("📈 ملخص النتائج")
-    c1,c2,c3,c4,c5 = st.columns(5)
-    with c1: st.metric("👥 إجمالي الطلاب", len(pivot))
-    with c2: st.metric("📚 عدد المواد", df['subject'].nunique())
-    with c3:
-        avg = float(pivot['المتوسط'].mean()) if 'المتوسط' in pivot.columns else 0.0
-        st.metric("📊 متوسط الإنجاز", f"{avg:.1f}%")
-    with c4:
-        st.metric("🥇 فئة بلاتيني", int((pivot['الفئة']=='بلاتيني 🥇').sum()))
-    with c5:
-        zero = int((pivot['المتوسط']==0).sum()) if 'المتوسط' in pivot.columns else 0
-        st.metric("⚠️ بدون إنجاز", zero)
-
-    st.divider()
-    st.subheader("📋 جدول النتائج التفصيلي")
-    st.dataframe(pivot, use_container_width=True, height=420)
-
-    st.divider()
+def chart_block():
     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
     st.markdown('<h2 class="chart-title">🍩 التوزيع العام للفئات</h2>', unsafe_allow_html=True)
     st.plotly_chart(chart_overall_donut(pivot), use_container_width=True)
@@ -603,6 +551,27 @@ if pivot is not None and not pivot.empty:
         st.error(f"خطأ في الرسم: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
 
+if pivot is not None and not pivot.empty:
+    st.subheader("📈 ملخص النتائج")
+    c1,c2,c3,c4,c5 = st.columns(5)
+    with c1: st.metric("👥 إجمالي الطلاب", len(pivot))
+    with c2: st.metric("📚 عدد المواد", df['subject'].nunique())
+    with c3:
+        avg = float(pivot['المتوسط'].mean()) if 'المتوسط' in pivot.columns else 0.0
+        st.metric("📊 متوسط الإنجاز", f"{avg:.1f}%")
+    with c4:
+        st.metric("🥇 فئة بلاتيني", int((pivot['الفئة']=='بلاتيني 🥇').sum()))
+    with c5:
+        zero = int((pivot['المتوسط']==0).sum()) if 'المتوسط' in pivot.columns else 0
+        st.metric("⚠️ بدون إنجاز", zero)
+
+    st.divider()
+    st.subheader("📋 جدول النتائج التفصيلي")
+    st.dataframe(pivot, use_container_width=True, height=420)
+
+    st.divider()
+    chart_block()
+
     st.divider()
 
     # ---- التقارير الفردية + ZIP ----
@@ -622,7 +591,7 @@ if pivot is not None and not pivot.empty:
         table = sdata[['subject','total_count','completed_count']].rename(columns={
             'subject':'المادة','total_count':'إجمالي','completed_count':'منجز'
         })
-        table[ 'متبقي'] = (table['إجمالي'] - table['منجز']).clip(lower=0).astype(int)
+        table['متبقي'] = (table['إجمالي'] - table['منجز']).clip(lower=0).astype(int)
         avg_stu = float(sdata['solve_pct'].mean()) if not sdata.empty else 0.0
 
         st.markdown("### معاينة سريعة")
