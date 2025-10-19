@@ -225,7 +225,7 @@ def create_pivot_table(df):
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.markdown(f"<div style='text-align: center;'>{MINISTRY_LOGO_SVG}</div>", unsafe_allow_html=True)
+    st.image("https://www.edu.gov.qa/ar/PublishingImages/logo.png", width=120, use_column_width=False)
 
 st.markdown("<div class='header-container'><h1>📊 محلل التقييمات الأسبوعية</h1><p>وزارة التربية والتعليم والتعليم العالي</p><p style='color: #D4A574;'>لضمان تنمية رقمية مستدامة</p></div>", unsafe_allow_html=True)
 
@@ -235,7 +235,7 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
-    st.markdown(f"<div style='text-align: center;'>{MINISTRY_LOGO_SVG}</div>", unsafe_allow_html=True)
+    st.image("https://www.edu.gov.qa/ar/PublishingImages/logo.png", width=100, use_column_width=False)
     st.markdown("---")
     st.header("الإعدادات")
     
