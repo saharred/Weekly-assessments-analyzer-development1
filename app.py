@@ -6,7 +6,7 @@ import io
 import base64
 from datetime import datetime
 
-# Page config - Enhanced styling
+# Page config
 st.set_page_config(
     page_title="محلل التقييمات الأسبوعية",
     page_icon="📊",
@@ -14,125 +14,234 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Styling - Maroon and White theme
+# Enhanced CSS with improved color palette and typography
 st.markdown("""
 <style>
-    :root {
-        --primary-color: #8B3A3A;
-        --secondary-color: #FFFFFF;
-        --accent-color: #D4A574;
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+    
+    * {
+        font-family: 'Cairo', 'Arial', sans-serif;
     }
     
-    /* Main container styling */
+    :root {
+        --primary: #8B3A3A;
+        --primary-dark: #6B2A2A;
+        --primary-light: #D4A574;
+        --secondary: #F5E6D3;
+        --accent: #C41E3A;
+        --success: #27AE60;
+        --warning: #F39C12;
+        --danger: #E74C3C;
+        --text-dark: #2C3E50;
+        --text-light: #95A5A6;
+        --bg-light: #F8F9FA;
+    }
+    
+    /* Main layout */
     .main {
-        background: linear-gradient(135deg, #f8f9fa 0%, #f0f0f0 100%);
+        background: linear-gradient(135deg, #f8f9fa 0%, #f0ebe5 100%);
     }
     
     /* Header styling */
     .header-container {
         background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%);
-        padding: 30px;
-        border-radius: 15px;
+        padding: 40px;
+        border-radius: 20px;
         color: white;
         text-align: center;
         margin-bottom: 30px;
-        box-shadow: 0 8px 16px rgba(139, 58, 58, 0.2);
+        box-shadow: 0 10px 30px rgba(139, 58, 58, 0.25);
+        border: 2px solid #D4A574;
     }
     
     .header-container h1 {
         margin: 0;
-        font-size: 32px;
-        font-weight: bold;
+        font-size: 36px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
     }
     
     .header-container p {
-        margin: 10px 0 0 0;
+        margin: 12px 0 0 0;
         font-size: 16px;
         opacity: 0.95;
+        font-weight: 400;
     }
     
     /* Sidebar styling */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #8B3A3A 0%, #A0483D 100%);
+        box-shadow: 2px 0 15px rgba(0, 0, 0, 0.1);
     }
     
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    [data-testid="stSidebar"] * {
         color: white;
     }
     
-    /* Section styling */
+    /* Section boxes */
     .section-box {
         background: white;
         padding: 25px;
-        border-radius: 12px;
+        border-radius: 15px;
         margin: 20px 0;
         border-left: 5px solid #8B3A3A;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 15px rgba(139, 58, 58, 0.1);
+        transition: all 0.3s ease;
     }
     
+    .section-box:hover {
+        box-shadow: 0 8px 25px rgba(139, 58, 58, 0.15);
+        transform: translateY(-2px);
+    }
+    
+    /* Metric boxes */
     .metric-box {
         background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%);
         color: white;
-        padding: 20px;
-        border-radius: 10px;
+        padding: 25px;
+        border-radius: 12px;
         text-align: center;
-        font-weight: bold;
+        font-weight: 600;
+        box-shadow: 0 6px 20px rgba(139, 58, 58, 0.2);
+        border: 2px solid #D4A574;
+        transition: all 0.3s ease;
+    }
+    
+    .metric-box:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(139, 58, 58, 0.3);
     }
     
     /* Button styling */
     .stButton > button {
         background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%) !important;
         color: white !important;
-        border: none !important;
-        padding: 12px 24px !important;
-        border-radius: 8px !important;
-        font-weight: bold !important;
+        border: 2px solid #D4A574 !important;
+        padding: 12px 28px !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
         transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(139, 58, 58, 0.2) !important;
     }
     
     .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 16px rgba(139, 58, 58, 0.3) !important;
+        transform: translateY(-3px) !important;
+        box-shadow: 0 8px 20px rgba(139, 58, 58, 0.35) !important;
+        border-color: white !important;
+    }
+    
+    .stButton > button:active {
+        transform: translateY(-1px) !important;
     }
     
     /* Input fields */
     .stTextInput > div > div > input,
-    .stSelectbox > div > div > select {
-        border: 2px solid #8B3A3A !important;
-        border-radius: 8px !important;
+    .stSelectbox > div > div > select,
+    .stMultiSelect > div > div > div {
+        border: 2px solid #D4A574 !important;
+        border-radius: 10px !important;
+        font-family: 'Cairo', 'Arial', sans-serif !important;
     }
     
     .stTextInput > div > div > input:focus,
     .stSelectbox > div > div > select:focus {
-        border-color: #D4A574 !important;
-        box-shadow: 0 0 8px rgba(139, 58, 58, 0.2) !important;
+        border-color: #8B3A3A !important;
+        box-shadow: 0 0 10px rgba(139, 58, 58, 0.3) !important;
     }
     
-    /* Divider */
+    /* Dividers */
     hr {
         border-color: #8B3A3A !important;
+        margin: 25px 0 !important;
     }
     
-    /* Info boxes */
-    .stInfo, .stSuccess, .stWarning, .stError {
+    /* Info and status boxes */
+    .stSuccess {
+        background-color: #E8F8F5 !important;
+        border-left: 5px solid #27AE60 !important;
         border-radius: 10px !important;
     }
     
-    .stSuccess {
-        background-color: #E8F5E9 !important;
-        border-left: 5px solid #4CAF50 !important;
+    .stWarning {
+        background-color: #FEF5E7 !important;
+        border-left: 5px solid #F39C12 !important;
+        border-radius: 10px !important;
+    }
+    
+    .stError {
+        background-color: #FADBD8 !important;
+        border-left: 5px solid #E74C3C !important;
+        border-radius: 10px !important;
+    }
+    
+    .stInfo {
+        background-color: #F4ECF7 !important;
+        border-left: 5px solid #8B3A3A !important;
+        border-radius: 10px !important;
+    }
+    
+    /* Card styling */
+    .card {
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        border-right: 4px solid #8B3A3A;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        margin: 8px 0;
+        transition: all 0.2s ease;
+    }
+    
+    .card:hover {
+        box-shadow: 0 4px 15px rgba(139, 58, 58, 0.15);
+    }
+    
+    /* Tables */
+    table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    
+    thead {
+        background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%) !important;
+        color: white !important;
+    }
+    
+    tbody tr:nth-child(odd) {
+        background-color: #F8F9FA !important;
+    }
+    
+    tbody tr:hover {
+        background-color: #F5E6D3 !important;
+    }
+    
+    /* Text styling */
+    h1, h2, h3, h4, h5, h6 {
+        color: #8B3A3A;
+        font-weight: 700;
+    }
+    
+    .subheading {
+        color: #A0483D;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Ministry Logo as SVG (Qatar Education Ministry)
+# Ministry Logo SVG
 MINISTRY_LOGO_SVG = """
-<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="48" fill="#8B3A3A" stroke="#D4A574" stroke-width="2"/>
-    <circle cx="50" cy="50" r="42" fill="#FFFFFF"/>
-    <text x="50" y="45" font-family="Arial" font-size="24" font-weight="bold" text-anchor="middle" fill="#8B3A3A">وزارة</text>
-    <text x="50" y="65" font-family="Arial" font-size="16" text-anchor="middle" fill="#8B3A3A">التعليم</text>
-    <circle cx="50" cy="50" r="35" fill="none" stroke="#8B3A3A" stroke-width="1.5" stroke-dasharray="5,5"/>
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#8B3A3A;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#A0483D;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+    <circle cx="60" cy="60" r="55" fill="url(#grad1)" stroke="#D4A574" stroke-width="2"/>
+    <circle cx="60" cy="60" r="50" fill="white"/>
+    <text x="60" y="50" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#8B3A3A">وزارة</text>
+    <text x="60" y="72" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#8B3A3A">التعليم</text>
+    <circle cx="60" cy="60" r="48" fill="none" stroke="#8B3A3A" stroke-width="1.5" stroke-dasharray="8,4"/>
 </svg>
 """
 
@@ -141,7 +250,6 @@ MINISTRY_LOGO_SVG = """
 def parse_sheet_name(sheet_name):
     """Extract subject, level, and section from sheet name"""
     parts = sheet_name.strip().split()
-    
     level = ""
     section = ""
     subject_parts = []
@@ -162,20 +270,35 @@ def analyze_excel_file(file, sheet_name):
     """Analyze a single Excel sheet"""
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
-        
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
+        
+        # استخراج جميع التواريخ من الصف الثاني (row 1) - الأعمدة I, J, K (indices 8, 9, 10)
+        due_dates = []
+        try:
+            for col_idx in [8, 9, 10]:  # I, J, K columns
+                if col_idx < df.shape[1]:
+                    cell_value = df.iloc[1, col_idx]
+                    if pd.notna(cell_value):
+                        try:
+                            # محاولة تحويل القيمة إلى تاريخ
+                            due_date = pd.to_datetime(cell_value)
+                            # التحقق من أنها تاريخ حقيقي
+                            if 2000 <= due_date.year <= 2100:
+                                due_dates.append(due_date.date())
+                        except:
+                            pass
+        except:
+            pass
         
         if len(df) > 1:
             level_from_excel = str(df.iloc[1, 1]).strip() if pd.notna(df.iloc[1, 1]) else ""
             section_from_excel = str(df.iloc[1, 2]).strip() if pd.notna(df.iloc[1, 2]) else ""
-            
             level = level_from_excel if level_from_excel and level_from_excel != 'nan' else level_from_name
             section = section_from_excel if section_from_excel and section_from_excel != 'nan' else section_from_name
         else:
             level = level_from_name
             section = section_from_name
         
-        # جمع التقييمات الصحيحة (ليست فارغة وليست - و —)
         assessment_titles = []
         for col_idx in range(7, df.shape[1]):
             title = df.iloc[0, col_idx]
@@ -189,25 +312,21 @@ def analyze_excel_file(file, sheet_name):
         
         for idx in range(4, len(df)):
             student_name = df.iloc[idx, 0]
-            
             if pd.isna(student_name) or str(student_name).strip() == "":
                 continue
             
             student_name_clean = " ".join(str(student_name).strip().split())
-            
             m_count = 0
             pending_titles = []
             
             for i, col_idx in enumerate(range(7, df.shape[1])):
                 if i < len(assessment_titles):
                     cell_value = df.iloc[idx, col_idx]
-                    
                     if pd.isna(cell_value):
                         m_count += 1
                         pending_titles.append(assessment_titles[i])
                     else:
                         cell_str = str(cell_value).strip().upper()
-                        
                         if cell_str in ['-', '—', 'NAN', '']:
                             m_count += 1
                             pending_titles.append(assessment_titles[i])
@@ -216,11 +335,7 @@ def analyze_excel_file(file, sheet_name):
                             pending_titles.append(assessment_titles[i])
             
             completed_count = total_assessments - m_count
-            
-            if total_assessments > 0:
-                solve_pct = (completed_count / total_assessments) * 100
-            else:
-                solve_pct = 0.0
+            solve_pct = (completed_count / total_assessments * 100) if total_assessments > 0 else 0.0
             
             results.append({
                 "student_name": student_name_clean,
@@ -230,47 +345,36 @@ def analyze_excel_file(file, sheet_name):
                 "solve_pct": solve_pct,
                 "completed_count": completed_count,
                 "total_count": total_assessments,
-                "pending_titles": ", ".join(pending_titles) if pending_titles else ""
+                "pending_titles": ", ".join(pending_titles) if pending_titles else "",
+                "due_dates": due_dates  # تخزين جميع التواريخ
             })
         
         return results
-    
     except Exception as e:
         st.error(f"خطأ في تحليل الورقة {sheet_name}: {str(e)}")
         return []
 
 def create_pivot_table(df):
     """Create pivot table - ONE ROW PER STUDENT - NO DUPLICATES"""
-    
     df_clean = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
-    
     unique_students = df_clean.groupby(['student_name', 'level', 'section']).size().reset_index(name='count')
     unique_students = unique_students[['student_name', 'level', 'section']]
     unique_students = unique_students.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
-    
     result = unique_students.copy()
-    
     subjects = sorted(df_clean['subject'].unique())
     
     for subject in subjects:
         subject_df = df_clean[df_clean['subject'] == subject][['student_name', 'level', 'section', 
                                                                 'total_count', 'completed_count', 
                                                                 'pending_titles', 'solve_pct']].copy()
-        
         subject_df = subject_df.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
-        
         subject_df = subject_df.rename(columns={
             'total_count': f"{subject} - إجمالي التقييمات",
             'completed_count': f"{subject} - المنجز",
             'pending_titles': f"{subject} - عناوين التقييمات المتبقية",
             'solve_pct': f"{subject} - نسبة الإنجاز %"
         })
-        
-        result = result.merge(
-            subject_df,
-            on=['student_name', 'level', 'section'],
-            how='left'
-        )
+        result = result.merge(subject_df, on=['student_name', 'level', 'section'], how='left')
     
     pct_cols = [col for col in result.columns if 'نسبة الإنجاز %' in col]
     if pct_cols:
@@ -301,17 +405,13 @@ def create_pivot_table(df):
     })
     
     result = result.drop_duplicates(subset=['اسم الطالب', 'الصف', 'الشعبة'], keep='first')
-    result = result.reset_index(drop=True)
-    
-    return result
+    return result.reset_index(drop=True)
 
 def generate_student_html_report(student_row, school_name="", coordinator="", academic="", admin="", principal="", logo_base64=""):
     """Generate individual student HTML report"""
-    
     student_name = student_row['اسم الطالب']
     level = student_row['الصف']
     section = student_row['الشعبة']
-    
     total_assessments = 0
     total_completed = 0
     subjects_data = []
@@ -319,7 +419,6 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
     for col in student_row.index:
         if ' - إجمالي التقييمات' in col:
             subject = col.replace(' - إجمالي التقييمات', '')
-            
             total_col = f"{subject} - إجمالي التقييمات"
             completed_col = f"{subject} - المنجز"
             pending_col = f"{subject} - عناوين التقييمات المتبقية"
@@ -329,63 +428,51 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
                 completed = int(student_row[completed_col]) if pd.notna(student_row[completed_col]) else 0
                 pending_titles = str(student_row[pending_col]) if pd.notna(student_row[pending_col]) and str(student_row[pending_col]) != "" else "-"
                 pct = (completed / total * 100) if total > 0 else 0
-                
                 total_assessments += total
                 total_completed += completed
-                
-                subjects_data.append({
-                    'subject': subject,
-                    'total': total,
-                    'completed': completed,
-                    'pending': pending_titles,
-                    'pct': pct
-                })
+                subjects_data.append({'subject': subject, 'total': total, 'completed': completed, 'pending': pending_titles, 'pct': pct})
     
     subjects_html = ""
     for data in subjects_data:
         subjects_html += f"""
         <tr>
-            <td style="text-align: right; padding: 12px; border: 1px solid #ddd;">{data['subject']}</td>
-            <td style="text-align: center; padding: 12px; border: 1px solid #ddd;">{data['total']}</td>
-            <td style="text-align: center; padding: 12px; border: 1px solid #ddd;">{data['completed']}</td>
-            <td style="text-align: center; padding: 12px; border: 1px solid #ddd; color: #8B3A3A; font-weight: bold;">{data['pct']:.1f}%</td>
-            <td style="text-align: right; padding: 12px; border: 1px solid #ddd; font-size: 12px;">{data['pending']}</td>
-        </tr>
-        """
+            <td style="text-align: right; padding: 12px;">{data['subject']}</td>
+            <td style="text-align: center; padding: 12px;">{data['total']}</td>
+            <td style="text-align: center; padding: 12px;">{data['completed']}</td>
+            <td style="text-align: center; padding: 12px; color: #8B3A3A; font-weight: bold;">{data['pct']:.1f}%</td>
+            <td style="text-align: right; padding: 12px; font-size: 12px;">{data['pending']}</td>
+        </tr>"""
     
     solve_pct = (total_completed / total_assessments * 100) if total_assessments > 0 else 0
     remaining = total_assessments - total_completed
     
     if solve_pct == 0:
-        recommendation = "الطالب لم يستفيد من النظام - يرجى التواصل مع ولي الأمر فوراً 🚫"
+        recommendation = "الطالب لم يستفيد من النظام"
         category_color = "#9E9E9E"
-        category_name = "لا يستفيد من النظام"
+        category_name = "لا يستفيد"
     elif solve_pct >= 90:
-        recommendation = "أداء ممتاز! استمر في التميز 🌟"
-        category_color = "#4CAF50"
+        recommendation = "أداء ممتاز"
+        category_color = "#27AE60"
         category_name = "البلاتينية 🥇"
     elif solve_pct >= 80:
-        recommendation = "أداء جيد جداً، حافظ على مستواك 👍"
+        recommendation = "أداء جيد جداً"
         category_color = "#8BC34A"
         category_name = "الذهبي 🥈"
     elif solve_pct >= 70:
-        recommendation = "أداء جيد، يمكنك التحسن أكثر ✓"
-        category_color = "#FFC107"
+        recommendation = "أداء جيد"
+        category_color = "#F39C12"
         category_name = "الفضي 🥉"
     elif solve_pct >= 60:
-        recommendation = "أداء مقبول، تحتاج لمزيد من الجهد ⚠️"
-        category_color = "#FF9800"
+        recommendation = "أداء مقبول"
+        category_color = "#E67E22"
         category_name = "البرونزي"
     else:
-        recommendation = "يرجى الاهتمام أكثر بالتقييمات ومراجعة المواد"
-        category_color = "#F44336"
+        recommendation = "يحتاج اهتماماً أكثر"
+        category_color = "#E74C3C"
         category_name = "يحتاج تحسين ⚠️"
     
-    logo_html = ""
-    if logo_base64:
-        logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="max-height: 80px; margin-bottom: 10px;" />'
-    
-    school_section = f"<h2 style='text-align: center; color: #8B3A3A; margin: 5px 0; font-size: 20px;'>{school_name}</h2>" if school_name else ""
+    logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="max-height: 100px; margin: 10px;">' if logo_base64 else ""
+    school_section = f"<h2 style='color: #8B3A3A; margin: 10px 0; font-size: 18px;'>{school_name}</h2>" if school_name else ""
     
     html = f"""
     <!DOCTYPE html>
@@ -393,125 +480,80 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
     <head>
         <meta charset="UTF-8">
         <title>تقرير {student_name}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
-            @page {{ size: A4; margin: 15mm; }}
-            body {{ font-family: 'Arial', 'Helvetica', sans-serif; direction: rtl; padding: 20px; background: #f5f5f5; }}
-            .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-            .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #8B3A3A; padding-bottom: 20px; margin-bottom: 30px; }}
-            .header-right {{ text-align: center; flex: 1; }}
-            .header-left {{ text-align: left; }}
-            h1 {{ color: #8B3A3A; margin: 10px 0; font-size: 24px; font-weight: bold; }}
-            h2 {{ color: #8B3A3A; margin: 5px 0; font-size: 20px; }}
-            h3 {{ color: #A0483D; font-size: 16px; }}
-            .student-info {{ background: #FFF8F0; padding: 20px; border-radius: 8px; margin-bottom: 25px; border-left: 5px solid #8B3A3A; }}
-            .student-info p {{ margin: 8px 0; font-size: 15px; }}
-            table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-            th {{ background: #8B3A3A; color: white; padding: 12px; text-align: center; border: 1px solid #8B3A3A; font-size: 13px; }}
-            td {{ padding: 12px; border: 1px solid #ddd; font-size: 14px; }}
-            tr:nth-child(even) {{ background-color: #fafafa; }}
-            .stats-section {{ background: #FFF8F0; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 5px solid #8B3A3A; }}
-            .stats-section h3 {{ color: #8B3A3A; margin-top: 0; }}
-            .stats-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px; }}
-            .stat-box {{ background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 5px rgba(139, 58, 58, 0.1); border-top: 3px solid #8B3A3A; }}
-            .stat-value {{ font-size: 24px; font-weight: bold; color: #8B3A3A; }}
-            .stat-label {{ font-size: 12px; color: #666; margin-top: 5px; }}
-            .recommendation {{ background: {category_color}; color: white; padding: 20px; border-radius: 8px; margin: 25px 0; text-align: center; font-size: 16px; font-weight: bold; }}
-            .category-badge {{ background: #8B3A3A; color: white; padding: 10px 15px; border-radius: 5px; display: inline-block; margin: 10px 0; font-weight: bold; }}
-            .signatures {{ margin-top: 40px; border-top: 2px solid #8B3A3A; padding-top: 20px; }}
-            .signature-line {{ margin: 15px 0; font-size: 14px; }}
-            @media print {{
-                body {{ background: white; padding: 0; }}
-                .container {{ box-shadow: none; max-width: 100%; }}
-            }}
+            body {{font-family: 'Cairo', sans-serif; direction: rtl; padding: 20px; background: #f5f5f5;}}
+            .container {{max-width: 800px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); border-radius: 15px;}}
+            .header {{display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #8B3A3A; padding-bottom: 20px; margin-bottom: 30px;}}
+            .header-left {{text-align: left;}} .header-right {{text-align: center; flex: 1;}}
+            h1 {{color: #8B3A3A; margin: 10px 0; font-size: 24px; font-weight: 700;}}
+            h3 {{color: #A0483D; font-size: 16px; font-weight: 600;}}
+            .info-box {{background: #F5E6D3; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 5px solid #8B3A3A;}}
+            table {{width: 100%; border-collapse: collapse; margin: 20px 0;}}
+            th {{background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%); color: white; padding: 12px; text-align: center; border: 1px solid #8B3A3A; font-weight: 600;}}
+            td {{padding: 12px; border: 1px solid #ddd; text-align: center;}}
+            tr:nth-child(even) {{background: #f9f9f9;}}
+            .stats {{display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0;}}
+            .stat {{background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; font-weight: 600;}}
+            .stat-value {{font-size: 24px; font-weight: bold; margin: 10px 0;}}
+            .category {{background: {category_color}; color: white; padding: 12px; border-radius: 8px; display: inline-block; margin: 15px 0; font-weight: 600;}}
+            .recommendation {{background: {category_color}; color: white; padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center; font-weight: 600; font-size: 16px;}}
+            .signature {{margin-top: 40px; border-top: 2px solid #8B3A3A; padding-top: 20px;}}
+            .sig-line {{margin: 20px 0; font-size: 14px;}}
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <div class="header-left">
-                    {logo_html}
-                </div>
+                <div class="header-left">{logo_html}</div>
                 <div class="header-right">
                     {school_section}
-                    <h1>📊 تقرير أداء الطالب</h1>
-                    <p style="color: #8B3A3A; font-size: 13px; font-weight: bold;">وزارة التربية والتعليم والتعليم العالي</p>
+                    <h1>تقرير أداء الطالب</h1>
+                    <p style="color: #8B3A3A; font-weight: 600;">وزارة التربية والتعليم والتعليم العالي</p>
                 </div>
             </div>
             
-            <div class="student-info">
-                <h3>📋 معلومات الطالب</h3>
-                <p><strong>اسم الطالب:</strong> {student_name}</p>
-                <p><strong>الصف:</strong> {level} &nbsp;&nbsp;&nbsp; <strong>الشعبة:</strong> {section}</p>
-                <div class="category-badge">الفئة: {category_name}</div>
+            <div class="info-box">
+                <h3>معلومات الطالب</h3>
+                <p><strong>الاسم:</strong> {student_name}</p>
+                <p><strong>الصف:</strong> {level} | <strong>الشعبة:</strong> {section}</p>
+                <div class="category">الفئة: {category_name}</div>
             </div>
             
             <table>
-                <thead>
-                    <tr>
-                        <th>المادة</th>
-                        <th>إجمالي التقييمات</th>
-                        <th>المنجز</th>
-                        <th>نسبة الإنجاز %</th>
-                        <th>التقييمات المتبقية</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {subjects_html}
-                </tbody>
+                <thead><tr><th>المادة</th><th>الإجمالي</th><th>المنجز</th><th>النسبة</th><th>المتبقي</th></tr></thead>
+                <tbody>{subjects_html}</tbody>
             </table>
             
-            <div class="stats-section">
-                <h3>📊 الإحصائيات الإجمالية</h3>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <div class="stat-label">إجمالي التقييمات</div>
-                        <div class="stat-value">{total_assessments}</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">المنجز</div>
-                        <div class="stat-value">{total_completed}</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">المتبقي</div>
-                        <div class="stat-value">{remaining}</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">نسبة الإنجاز</div>
-                        <div class="stat-value">{solve_pct:.1f}%</div>
-                    </div>
-                </div>
+            <div class="stats">
+                <div class="stat"><div style="font-size: 14px;">إجمالي</div><div class="stat-value">{total_assessments}</div></div>
+                <div class="stat"><div style="font-size: 14px;">منجز</div><div class="stat-value">{total_completed}</div></div>
+                <div class="stat"><div style="font-size: 14px;">متبقي</div><div class="stat-value">{remaining}</div></div>
+                <div class="stat"><div style="font-size: 14px;">النسبة</div><div class="stat-value">{solve_pct:.1f}%</div></div>
             </div>
             
-            <div class="recommendation">
-                💡 {recommendation}
-            </div>
+            <div class="recommendation">{recommendation}</div>
             
-            <div class="signatures">
-                <div class="signature-line"><strong>منسق المشاريع/</strong> {coordinator if coordinator else "_____________"}</div>
-                <div class="signature-line">
-                    <strong>النائب الأكاديمي/</strong> {academic if academic else "_____________"} &nbsp;&nbsp;&nbsp;
-                    <strong>النائب الإداري/</strong> {admin if admin else "_____________"}
-                </div>
-                <div class="signature-line"><strong>مدير المدرسة/</strong> {principal if principal else "_____________"}</div>
-                
-                <p style="text-align: center; color: #999; margin-top: 30px; font-size: 11px;">
-                    تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            <div class="signature">
+                <div class="sig-line"><strong>منسق المشاريع:</strong> {coordinator if coordinator else "_____________"}</div>
+                <div class="sig-line"><strong>النائب الأكاديمي:</strong> {academic if academic else "_____________"}</div>
+                <div class="sig-line"><strong>النائب الإداري:</strong> {admin if admin else "_____________"}</div>
+                <div class="sig-line"><strong>مدير المدرسة:</strong> {principal if principal else "_____________"}</div>
+                <p style="text-align: center; color: #999; font-size: 12px; margin-top: 30px;">
+                    تاريخ الإصدار: {datetime.now().strftime('%Y-%m-%d')}
                 </p>
             </div>
         </div>
     </body>
-    </html>
-    """
-    
+    </html>"""
     return html
 
 # ================== MAIN APP ==================
 
-# Header
 st.markdown(f"""
 <div class="header-container">
     <h1>📊 محلل التقييمات الأسبوعية</h1>
-    <p>نظام تحليل شامل لنتائج الطلاب | وزارة التربية والتعليم والتعليم العالي</p>
+    <p>نظام تحليل شامل وموثوق لنتائج الطلاب</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -520,109 +562,88 @@ if "analysis_results" not in st.session_state:
 if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
-# Sidebar - Settings
+# Sidebar
 with st.sidebar:
+    st.markdown(f"<div style='text-align: center; margin: 20px 0;'>{MINISTRY_LOGO_SVG}</div>", unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown(f"{MINISTRY_LOGO_SVG}", unsafe_allow_html=True)
-    st.markdown("---")
-    
     st.header("⚙️ الإعدادات")
     
-    # File Upload Section
+    # File Upload
     st.subheader("📁 تحميل الملفات")
-    
     uploaded_files = st.file_uploader(
-        "اختر ملفات Excel (يمكنك اختيار أكثر من ملف)",
+        "اختر ملفات Excel",
         type=["xlsx", "xls"],
-        accept_multiple_files=True,
-        help="📌 يدعم تحليل عدة ملفات في آن واحد"
+        accept_multiple_files=True
     )
     
     if uploaded_files:
         st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
-        
         try:
             all_sheets = []
             sheet_file_map = {}
-            
             for file_idx, file in enumerate(uploaded_files):
-                try:
-                    xls = pd.ExcelFile(file)
-                    sheets = xls.sheet_names
-                    for sheet in sheets:
-                        sheet_display = f"[ملف {file_idx+1}] {sheet}"
-                        all_sheets.append(sheet_display)
-                        sheet_file_map[sheet_display] = (file, sheet)
-                except Exception as e:
-                    st.warning(f"⚠️ خطأ في قراءة الملف")
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    sheet_display = f"[ملف {file_idx+1}] {sheet}"
+                    all_sheets.append(sheet_display)
+                    sheet_file_map[sheet_display] = (file, sheet)
             
             if all_sheets:
-                st.info(f"📊 وجدت {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
-                
-                selected_sheets_display = st.multiselect(
-                    "اختر المواد المراد تحليلها",
-                    all_sheets,
-                    default=all_sheets
-                )
-                
+                st.info(f"📊 {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
+                selected_sheets_display = st.multiselect("اختر المواد", all_sheets, default=all_sheets)
                 selected_sheets = [(sheet_file_map[s][0], sheet_file_map[s][1]) for s in selected_sheets_display]
             else:
-                st.error("❌ لم يتم العثور على أي مواد")
                 selected_sheets = []
         except Exception as e:
             st.error(f"خطأ: {e}")
             selected_sheets = []
     else:
-        st.info("💡 ارفع ملفات Excel لبدء التحليل")
+        st.info("💡 ارفع ملفات Excel للبدء")
         selected_sheets = []
     
-    st.divider()
-    
-    # School and Signatures Settings
+    st.markdown("---")
     st.subheader("🏫 معلومات المدرسة")
+    school_name = st.text_input("اسم المدرسة", placeholder="مثال: مدرسة قطر النموذجية")
     
-    school_name = st.text_input(
-        "📛 اسم المدرسة",
-        value="",
-        placeholder="مثال: مدرسة قطر النموذجية"
-    )
-    
-    st.subheader("🖼️ شعار الوزارة/المدرسة")
-    uploaded_logo = st.file_uploader(
-        "ارفع شعار (اختياري)",
-        type=["png", "jpg", "jpeg"],
-        help="سيظهر الشعار في رأس التقارير"
-    )
-    
+    st.subheader("🖼️ شعار الوزارة")
+    uploaded_logo = st.file_uploader("ارفع شعار", type=["png", "jpg", "jpeg"])
     logo_base64 = ""
     if uploaded_logo:
-        logo_bytes = uploaded_logo.read()
-        logo_base64 = base64.b64encode(logo_bytes).decode()
+        logo_base64 = base64.b64encode(uploaded_logo.read()).decode()
         st.success("✅ تم رفع الشعار")
     
-    st.divider()
+    st.markdown("---")
+    st.subheader("📅 فلتر التاريخ")
     
+    date_filter_type = st.radio("نوع الفلتر:", ["بدون فلتر", "من تاريخ إلى تاريخ", "من تاريخ إلى الآن"])
+    
+    from_date = None
+    to_date = None
+    
+    st.caption("💡 سيتم قراءة التواريخ تلقائياً من الملفات (الأعمدة I, J, K - الصف الثاني)")
+    
+    if date_filter_type == "من تاريخ إلى تاريخ":
+        col1, col2 = st.columns(2)
+        with col1:
+            from_date = st.date_input("من تاريخ", key="from_date")
+        with col2:
+            to_date = st.date_input("إلى تاريخ", key="to_date")
+    elif date_filter_type == "من تاريخ إلى الآن":
+        from_date = st.date_input("من تاريخ", key="from_date_now")
+        to_date = pd.Timestamp.now().date()
+    
+    st.markdown("---")
     st.subheader("✍️ معلومات التوقيعات")
     
-    coordinator_name = st.text_input(
-        "👤 منسق المشاريع",
-        value="",
-        placeholder="أدخل اسم منسق المشاريع"
-    )
+    coordinator_name = st.text_input("منسق المشاريع", placeholder="أدخل الاسم")
+    academic_deputy = st.text_input("النائب الأكاديمي", placeholder="أدخل الاسم")
+    admin_deputy = st.text_input("النائب الإداري", placeholder="أدخل الاسم")
+    principal_name = st.text_input("مدير المدرسة", placeholder="أدخل الاسم")
     
-    academic_deputy = st.text_input(
-        "👨‍🏫 النائب الأكاديمي",
-        value="",
-        placeholder="أدخل اسم النائب الأكاديمي"
+    st.markdown("---")
+    run_analysis = st.button(
+        "🚀 تشغيل التحليل",
+        use_container_width=True,
+        type="primary",
+        disabled=not (uploaded_files and selected_sheets)
     )
-    
-    admin_deputy = st.text_input(
-        "👨‍💼 النائب الإداري",
-        value="",
-        placeholder="أدخل اسم النائب الإداري"
-    )
-    
-    principal_name = st.text_input(
-        "🎓 مدير المدرسة",
-        value="",
-        placeholder="أدخل اسم مدير المدرسة"
