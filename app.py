@@ -229,13 +229,7 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
-    col_left, col_mid, col_right = st.columns([1, 1, 1])
-    with col_left:
-        st.image("https://i.imgur.com/1bX5dzp.jpeg", width=70)
-    with col_right:
-        st.image("https://i.imgur.com/QfVfT9X.jpeg", width=70)
-    
-    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/3ASAXDc.png' style='width: 120px; height: auto;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/QfVfT9X.jpeg' style='width: 100px; height: auto;'></div>", unsafe_allow_html=True)
     
     st.markdown("---")
     st.header("الإعدادات")
