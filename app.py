@@ -331,23 +331,42 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def parse_sheet_name(sheet_name):
+    """
+    تحليل اسم الورقة لاستخراج المادة والمستوى والشعبة
+    التنسيق المتوقع: "اسم المادة المستوى الشعبة"
+    مثال: "التربية الاسلامية 01 1"
+    """
     try:
+        # إزالة المسافات الزائدة وتقسيم النص
         parts = sheet_name.strip().split()
-        level = ""
-        section = ""
-        subject_parts = []
-        for part in parts:
-            if part.isdigit() or (part.startswith('0') and len(part) <= 2):
-                if not level:
-                    level = part
-                else:
-                    section = part
-            else:
-                subject_parts.append(part)
-        subject = " ".join(subject_parts) if subject_parts else sheet_name
+        
+        if len(parts) < 3:
+            # إذا كان التنسيق غير صحيح، استخدم الاسم كاملاً كمادة
+            return sheet_name.strip(), "", ""
+        
+        # آخر جزء هو الشعبة (رقم واحد)
+        section = parts[-1]
+        
+        # الجزء قبل الأخير هو المستوى (عادة رقمين مثل 01, 02, 10)
+        level = parts[-2]
+        
+        # كل ما قبل ذلك هو اسم المادة
+        subject_parts = parts[:-2]
+        subject = " ".join(subject_parts)
+        
+        # التحقق من أن المستوى والشعبة أرقام
+        if not (level.isdigit() or (level.startswith('0') and len(level) <= 2)):
+            # إذا لم يكن رقم، ربما التنسيق مختلف
+            subject = " ".join(parts[:-1])
+            level = parts[-1]
+            section = ""
+        
+        logger.info(f"تحليل الورقة: '{sheet_name}' → المادة: '{subject}', المستوى: '{level}', الشعبة: '{section}'")
+        
         return subject, level, section
+        
     except Exception as e:
-        logger.error(f"خطأ: {str(e)}")
+        logger.error(f"خطأ في تحليل اسم الورقة '{sheet_name}': {str(e)}")
         return sheet_name, "", ""
 
 @st.cache_data
@@ -356,73 +375,58 @@ def analyze_excel_file(file, sheet_name):
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
         
-        # البحث عن صف العناوين (الصف الذي يحتوي على "الطالب" أو أسماء الطلاب)
-        header_row = 0
-        for idx in range(min(10, len(df))):
-            if pd.notna(df.iloc[idx, 0]) and any(keyword in str(df.iloc[idx, 0]).lower() for keyword in ['طالب', 'اسم', 'student']):
-                header_row = idx
-                break
-        
-        # قراءة التواريخ من الصف الثاني أو الثالث
+        # قراءة التواريخ من الصف 2 (index 1)
         due_dates = []
         try:
-            for row_idx in range(1, min(4, len(df))):
-                for col_idx in range(7, min(df.shape[1], 20)):
-                    cell_value = df.iloc[row_idx, col_idx]
-                    if pd.notna(cell_value):
-                        try:
-                            due_date = pd.to_datetime(cell_value)
-                            if 2000 <= due_date.year <= 2100:
-                                due_dates.append(due_date.date())
-                        except (ValueError, TypeError):
-                            continue
+            for col_idx in range(7, min(df.shape[1], 20)):
+                cell_value = df.iloc[1, col_idx]
+                if pd.notna(cell_value):
+                    try:
+                        due_date = pd.to_datetime(cell_value)
+                        if 2000 <= due_date.year <= 2100:
+                            due_dates.append(due_date.date())
+                    except (ValueError, TypeError):
+                        continue
         except (IndexError, KeyError):
             pass
         
         level = level_from_name
         section = section_from_name
         
-        # قراءة عناوين التقييمات من الصف الأول
-        assessment_titles = []
-        assessment_start_col = 7  # العمود H (index 7)
-        
+        # قراءة عدد التقييمات من الصف 3 (index 2)، العمود H (index 7)
+        total_assessments = 0
         try:
-            # البحث عن أول صف يحتوي على عناوين التقييمات
-            title_row = 0
-            for idx in range(min(4, len(df))):
-                cell_value = df.iloc[idx, assessment_start_col]
-                if pd.notna(cell_value):
-                    cell_str = str(cell_value).strip()
-                    # إذا كان يحتوي على نص وليس فقط أرقام
-                    if cell_str and not cell_str.replace('.', '').replace('%', '').isdigit():
-                        title_row = idx
-                        break
-            
-            # قراءة عناوين التقييمات
-            for col_idx in range(assessment_start_col, df.shape[1]):
-                title = df.iloc[title_row, col_idx]
-                if pd.notna(title):
-                    title_str = str(title).strip()
-                    if title_str and title_str not in ['-', '—', 'nan', '', 'Overall', 'M', 'I', 'AB', 'X']:
-                        assessment_titles.append(title_str)
-                    else:
-                        break  # توقف عند أول عمود فارغ أو غير صالح
-        except (IndexError, KeyError):
-            pass
-        
-        total_assessments = len(assessment_titles)
+            cell_value = df.iloc[2, 7]  # الصف 3، العمود H
+            if pd.notna(cell_value):
+                total_assessments = int(float(str(cell_value).strip()))
+        except (ValueError, TypeError, IndexError):
+            # إذا فشل، احسب عدد الأعمدة الممتلئة
+            for col_idx in range(7, df.shape[1]):
+                if pd.notna(df.iloc[0, col_idx]) or pd.notna(df.iloc[1, col_idx]):
+                    total_assessments += 1
+                else:
+                    break
         
         if total_assessments == 0:
             st.warning(f"⚠️ لم يتم العثور على تقييمات في ورقة: {sheet_name}")
             return []
         
+        # قراءة أسماء التقييمات من الصف 1 (index 0)
+        assessment_titles = []
+        for col_idx in range(7, 7 + total_assessments):
+            if col_idx < df.shape[1]:
+                title = df.iloc[0, col_idx]
+                if pd.notna(title):
+                    title_str = str(title).strip()
+                    assessment_titles.append(title_str)
+                else:
+                    assessment_titles.append(f"تقييم {col_idx - 6}")
+        
         results = []
         
-        # البدء من الصف الذي يلي العناوين
-        start_row = max(4, header_row + 1)
-        
+        # البدء من الصف 5 (index 4) - صف البيانات الأول
         try:
-            for idx in range(start_row, len(df)):
+            for idx in range(4, len(df)):
                 student_name = df.iloc[idx, 0]  # العمود A
                 
                 # تخطي الصفوف الفارغة
@@ -434,37 +438,52 @@ def analyze_excel_file(file, sheet_name):
                 # حساب التقييمات المنجزة والمتبقية
                 m_count = 0
                 pending_titles = []
+                completed_count = 0
                 
                 for i in range(total_assessments):
-                    col_idx = assessment_start_col + i
+                    col_idx = 7 + i  # بداية من العمود H
+                    
                     if col_idx >= df.shape[1]:
-                        break
+                        m_count += 1
+                        if i < len(assessment_titles):
+                            pending_titles.append(assessment_titles[i])
+                        continue
                     
                     cell_value = df.iloc[idx, col_idx]
                     
                     # التحقق من القيمة
-                    is_missing = False
+                    is_completed = False
                     
                     if pd.isna(cell_value):
-                        is_missing = True
+                        # قيمة فارغة = متبقي
+                        is_completed = False
                     else:
                         cell_str = str(cell_value).strip().upper()
-                        # اعتبار M أو فارغ أو - كمتبقي
-                        if cell_str in ['M', '-', '—', '', 'NAN']:
-                            is_missing = True
-                        # إذا كانت رقم صغير جداً (أقل من 1)
-                        try:
-                            if float(cell_str) < 1:
-                                is_missing = True
-                        except (ValueError, TypeError):
-                            pass
+                        
+                        # إذا كانت M أو - أو فارغة = متبقي
+                        if cell_str in ['M', 'I', 'AB', 'X', '-', '—', '', 'NAN', 'NONE']:
+                            is_completed = False
+                        else:
+                            # محاولة تحويلها لرقم
+                            try:
+                                num_value = float(cell_str)
+                                # إذا كانت رقم أكبر من 0 = منجز
+                                if num_value > 0:
+                                    is_completed = True
+                                else:
+                                    is_completed = False
+                            except (ValueError, TypeError):
+                                # إذا لم تكن رقم وليست M = منجز (مثل علامة صح أو نص)
+                                if len(cell_str) > 0:
+                                    is_completed = True
                     
-                    if is_missing:
+                    if is_completed:
+                        completed_count += 1
+                    else:
                         m_count += 1
                         if i < len(assessment_titles):
                             pending_titles.append(assessment_titles[i])
                 
-                completed_count = total_assessments - m_count
                 solve_pct = (completed_count / total_assessments * 100) if total_assessments > 0 else 0.0
                 
                 results.append({
@@ -472,7 +491,7 @@ def analyze_excel_file(file, sheet_name):
                     "subject": subject,
                     "level": str(level).strip(),
                     "section": str(section).strip(),
-                    "solve_pct": solve_pct,
+                    "solve_pct": round(solve_pct, 1),
                     "completed_count": completed_count,
                     "total_count": total_assessments,
                     "pending_titles": ", ".join(pending_titles) if pending_titles else "-",
@@ -481,11 +500,11 @@ def analyze_excel_file(file, sheet_name):
         except (IndexError, KeyError) as e:
             logger.error(f"خطأ في قراءة البيانات: {str(e)}")
         
-        logger.info(f"تم تحليل {len(results)} طالب من ورقة {sheet_name}")
+        logger.info(f"✅ تم تحليل {len(results)} طالب من ورقة {sheet_name} - إجمالي {total_assessments} تقييم")
         return results
         
     except Exception as e:
-        logger.error(f"خطأ في analyze_excel_file: {str(e)}")
+        logger.error(f"❌ خطأ في analyze_excel_file: {str(e)}")
         st.error(f"❌ خطأ في تحليل الملف: {str(e)}")
         return []
 
