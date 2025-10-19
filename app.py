@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="محلل التقييمات الأسبوعية",
-    page_icon="📊",
+    page_icon="https://i.imgur.com/XLef7tS.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -21,7 +21,9 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
     * { font-family: 'Cairo', 'Arial', sans-serif; }
-    .main { background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%); }
+    .main { background: white; }
+    body { background: white; }
+    .stApp { background: white; }
     .header-container {
         background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%);
         padding: 40px; border-radius: 20px; color: white; text-align: center;
@@ -275,6 +277,9 @@ with st.sidebar:
     
     st.markdown("---")
     run_analysis = st.button("تشغيل التحليل", use_container_width=True, type="primary", disabled=not (uploaded_files and selected_sheets))
+    
+    st.markdown("---")
+    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/XLef7tS.png' style='width: 80px; height: auto;'></div>", unsafe_allow_html=True)
 
 if not uploaded_files:
     st.info("ارفع ملفات Excel من الشريط الجانبي")
@@ -325,3 +330,6 @@ if st.session_state.pivot_table is not None:
     with col2:
         csv_data = pivot.to_csv(index=False, encoding="utf-8-sig")
         st.download_button("تحميل CSV", csv_data, f"results_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+    
+    st.divider()
+    st.markdown("<div style='text-align: center; margin-top: 40px; padding: 20px; color: #8B3A3A; font-size: 12px; border-top: 2px solid #8B3A3A;'><p>© جميع الحقوق محفوظة لمدرسة عثمان بن عفان النموذجية للبنين</p><p>منسقة المشاريع الإلكترونية / سحر عثمان</p></div>", unsafe_allow_html=True)
