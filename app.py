@@ -823,7 +823,7 @@ st.markdown(f"""
 <div class="footer">
   <div class="line"></div>
   <img class="logo" src="https://i.imgur.com/XLef7tS.png" alt="Logo">
-  <div class="school">مدرسة عثمان بن عفان النموذجية للبنين</div>
+  <div class="school">مدرسة عثمان بن عفان -منسقة المشاريع الإلكترونية/ سحر عثمان</div>
   <div class="rights">© {datetime.now().year} جميع الحقوق محفوظة</div>
   <div class="contact">للتواصل:
     <a href="mailto:S.mahgoub0101@education.qa">S.mahgoub0101@education.qa</a>
