@@ -32,50 +32,72 @@ st.markdown("""
     body { background: #FFFFFF; }
     .stApp { background: #FFFFFF; }
     
-    /* Header Container - Modern & Professional */
+    /* Header Container - Enhanced Branding */
     .header-container {
-        background: linear-gradient(to bottom, #8A1538 0%, #6B1029 100%);
-        padding: 48px 40px;
+        background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
+        padding: 56px 48px;
         border-radius: 0;
-        color: white;
+        color: #FFFFFF;
         text-align: center;
-        margin-bottom: 32px;
-        box-shadow: 0 4px 12px rgba(138, 21, 56, 0.15);
-        border-bottom: 3px solid #C5A572;
+        margin-bottom: 40px;
+        box-shadow: 0 6px 20px rgba(138, 21, 56, 0.25);
+        border-bottom: 4px solid #C9A646;
+        position: relative;
+    }
+    
+    .header-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
     }
     
     .header-container h1 { 
-        margin: 0 0 12px 0;
-        font-size: 32px;
+        margin: 0 0 20px 0;
+        font-size: 40px;
         font-weight: 700;
-        line-height: 1.3;
+        line-height: 1.25;
+        color: #FFFFFF !important;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        letter-spacing: -0.01em;
     }
     
     .header-container .subtitle { 
-        font-size: 14px;
-        font-weight: 500;
-        opacity: 0.95;
-        margin: 0 0 8px 0;
+        font-size: 18px;
+        font-weight: 600;
+        opacity: 1;
+        margin: 0 0 16px 0;
+        color: #FFFFFF !important;
+        letter-spacing: 0.01em;
     }
     
     .header-container .accent-line {
-        font-size: 12px;
-        color: #C5A572;
+        font-size: 15px;
+        color: #C9A646;
         font-weight: 600;
-        margin: 0 0 16px 0;
+        margin: 0 0 14px 0;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
     }
     
     .header-container .description {
-        font-size: 12px;
-        opacity: 0.9;
+        font-size: 14px;
+        opacity: 0.95;
         margin: 0;
+        color: #FFFFFF !important;
+        font-weight: 400;
+        letter-spacing: 0.01em;
     }
     
     /* Sidebar - Solid Qatar Maroon */
     [data-testid="stSidebar"] {
-        background: #8A1538 !important;
-        border-right: 1px solid #6B1029;
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+        background: linear-gradient(180deg, #8A1538 0%, #6B1029 100%) !important;
+        border-right: 2px solid #C9A646;
+        box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
     }
     
     [data-testid="stSidebar"] * { 
@@ -86,75 +108,82 @@ st.markdown("""
     [data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3 {
         font-weight: 600;
+        color: #FFFFFF !important;
+    }
+    
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(201, 166, 70, 0.3) !important;
+        margin: 20px 0 !important;
     }
     
     /* Section Box - Clean & Minimal */
     .section-box {
-        background: #FAFAF9;
-        padding: 24px;
-        border-radius: 8px;
-        margin: 24px 0;
-        border-left: 4px solid #8A1538;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        background: #F5F5F5;
+        padding: 28px;
+        border-radius: 12px;
+        margin: 28px 0;
+        border-right: 6px solid #8A1538;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
     
     /* Metric Box - Modern Card Style */
     .metric-box {
         background: #FFFFFF;
-        border: 2px solid #E8E8E6;
-        border-left: 4px solid #8A1538;
-        padding: 20px;
-        border-radius: 8px;
+        border: 2px solid #E8E8E8;
+        border-right: 5px solid #8A1538;
+        padding: 24px;
+        border-radius: 10px;
         text-align: center;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-        transition: all 0.2s ease;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+        transition: all 0.3s ease;
     }
     
     .metric-box:hover {
-        border-left-color: #C5A572;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        transform: translateY(-2px);
+        border-right-color: #C9A646;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+        transform: translateY(-3px);
     }
     
     .metric-value {
-        font-size: 36px;
+        font-size: 40px;
         font-weight: 700;
         color: #8A1538;
-        line-height: 1.2;
-        margin-bottom: 4px;
+        line-height: 1.1;
+        margin-bottom: 8px;
     }
     
     .metric-label {
-        font-size: 12px;
-        font-weight: 500;
-        color: #5A5A5A;
+        font-size: 13px;
+        font-weight: 600;
+        color: #4A4A4A;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.08em;
     }
     
     /* Buttons - Clean Qatar Maroon */
     .stButton > button {
-        background: #8A1538 !important;
+        background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%) !important;
         color: white !important;
         border: none !important;
-        padding: 12px 24px !important;
-        border-radius: 6px !important;
+        padding: 14px 28px !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
-        font-size: 14px !important;
-        transition: all 0.2s ease !important;
-        box-shadow: 0 2px 4px rgba(138, 21, 56, 0.2) !important;
+        font-size: 15px !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(138, 21, 56, 0.25) !important;
+        letter-spacing: 0.02em !important;
     }
     
     .stButton > button:hover {
-        background: #6B1029 !important;
-        box-shadow: 0 4px 8px rgba(138, 21, 56, 0.3) !important;
-        transform: translateY(-1px) !important;
+        background: linear-gradient(135deg, #6B1029 0%, #8A1538 100%) !important;
+        box-shadow: 0 6px 20px rgba(138, 21, 56, 0.35) !important;
+        transform: translateY(-2px) !important;
     }
     
     /* Divider */
     hr { 
-        border-color: #E8E8E6 !important;
-        margin: 24px 0 !important;
+        border-color: #E8E8E8 !important;
+        margin: 32px 0 !important;
         border-width: 1px !important;
     }
     
@@ -169,14 +198,14 @@ st.markdown("""
         color: #8A1538;
     }
     
-    h1 { font-size: 32px; line-height: 1.3; margin-bottom: 12px; }
-    h2 { font-size: 24px; line-height: 1.4; margin-bottom: 16px; }
-    h3 { font-size: 20px; line-height: 1.4; margin-bottom: 12px; }
-    h4 { font-size: 16px; line-height: 1.5; margin-bottom: 8px; }
+    h1 { font-size: 36px; line-height: 1.3; margin-bottom: 16px; font-weight: 700; }
+    h2 { font-size: 28px; line-height: 1.35; margin-bottom: 20px; font-weight: 600; }
+    h3 { font-size: 22px; line-height: 1.4; margin-bottom: 16px; font-weight: 600; }
+    h4 { font-size: 18px; line-height: 1.5; margin-bottom: 12px; font-weight: 600; }
     
     p, div, span {
-        font-size: 14px;
-        line-height: 1.6;
+        font-size: 15px;
+        line-height: 1.7;
         color: #2C2C2C;
     }
     
@@ -185,35 +214,36 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 20px 40px;
-        background: #FAFAF9;
-        border-bottom: 2px solid #E8E8E6;
+        padding: 24px 48px;
+        background: #F5F5F5;
+        border-bottom: 3px solid #8A1538;
         margin-bottom: 0;
     }
     
     .logo-left {
         display: flex;
         align-items: center;
-        padding: 10px;
+        padding: 12px;
     }
     
     .logo-right-group {
         display: flex;
-        gap: 20px;
+        gap: 24px;
         align-items: center;
-        padding: 10px;
+        padding: 12px;
     }
     
     .logo-sidebar-container {
         text-align: center;
-        padding: 24px 20px;
-        margin-bottom: 24px;
+        padding: 28px 24px;
+        margin-bottom: 28px;
+        border-bottom: 2px solid rgba(201, 166, 70, 0.3);
     }
     
     .logo-footer-container {
         text-align: center;
-        padding: 20px;
-        margin: 0 auto 16px;
+        padding: 24px;
+        margin: 0 auto 20px;
     }
     
     /* Download Buttons */
@@ -221,64 +251,81 @@ st.markdown("""
         background: #FFFFFF !important;
         color: #8A1538 !important;
         border: 2px solid #8A1538 !important;
-        padding: 10px 22px !important;
-        border-radius: 6px !important;
+        padding: 12px 26px !important;
+        border-radius: 8px !important;
         font-weight: 600 !important;
         font-size: 14px !important;
-        transition: all 0.2s ease !important;
+        transition: all 0.3s ease !important;
     }
     
     .stDownloadButton > button:hover {
         background: #8A1538 !important;
         color: #FFFFFF !important;
-        transform: translateY(-1px) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 12px rgba(138, 21, 56, 0.25) !important;
     }
     
     /* File Uploader Button - Browse Files */
     [data-testid="stFileUploader"] label {
-        color: #8A1538 !important;
+        color: #FFFFFF !important;
         font-weight: 600 !important;
     }
     
     [data-testid="stFileUploader"] button {
-        background: #FFFFFF !important;
-        color: #8A1538 !important;
-        border: 2px solid #8A1538 !important;
+        background: rgba(255, 255, 255, 0.15) !important;
+        color: #FFFFFF !important;
+        border: 2px solid rgba(255, 255, 255, 0.3) !important;
         font-weight: 600 !important;
+        transition: all 0.3s ease !important;
     }
     
     [data-testid="stFileUploader"] button:hover {
-        background: #8A1538 !important;
-        color: #FFFFFF !important;
+        background: rgba(255, 255, 255, 0.25) !important;
+        border-color: #C9A646 !important;
     }
     
     [data-testid="stFileUploader"] section {
-        border-color: #8A1538 !important;
+        border-color: rgba(255, 255, 255, 0.3) !important;
     }
     
     [data-testid="stFileUploader"] small {
         color: #FFFFFF !important;
+        opacity: 0.9;
     }
     
     /* Dataframe Styling */
     [data-testid="stDataFrame"] {
-        border: 1px solid #E8E8E6;
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border: 2px solid #E8E8E8;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     }
     
     /* Metrics Enhancement */
     [data-testid="stMetricValue"] {
-        font-size: 36px !important;
+        font-size: 40px !important;
         font-weight: 700 !important;
         color: #8A1538 !important;
     }
     
     [data-testid="stMetricLabel"] {
-        font-size: 12px !important;
-        font-weight: 500 !important;
-        color: #5A5A5A !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #4A4A4A !important;
         text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+    }
+    
+    /* Success/Info Messages */
+    .stSuccess {
+        background-color: rgba(138, 21, 56, 0.1) !important;
+        color: #8A1538 !important;
+        border-right: 4px solid #8A1538 !important;
+    }
+    
+    .stInfo {
+        background-color: rgba(201, 166, 70, 0.1) !important;
+        color: #4A4A4A !important;
+        border-right: 4px solid #C9A646 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -597,17 +644,53 @@ if st.session_state.pivot_table is not None:
     
     st.divider()
     
-    # Footer
+    # Footer - Enhanced Professional Design
     st.markdown("""
-    <div style='text-align: center; margin-top: 48px; padding: 32px 24px; background: linear-gradient(to bottom, #8A1538 0%, #6B1029 100%); border-top: 3px solid #C5A572; border-radius: 8px; box-shadow: 0 4px 12px rgba(138, 21, 56, 0.15);'>
-        <p style='color: #FFFFFF; font-weight: 700; font-size: 16px; margin-bottom: 12px;'>
-            © جميع الحقوق محفوظة لمدرسة عثمان بن عفان النموذجية للبنين
-        </p>
-        <p style='color: #FFFFFF; font-weight: 600; font-size: 14px; margin-bottom: 8px;'>
-            منسقة المشاريع الإلكترونية / سحر عثمان
-        </p>
-        <p style='color: #FFFFFF; font-size: 13px; margin: 0;'>
-            📧 للتواصل: <a href='mailto:S.mahgoub0101@education.qa' style='color: #C5A572; font-weight: 600; text-decoration: none;'>S.mahgoub0101@education.qa</a>
-        </p>
+    <div style='margin-top: 80px; padding: 0; background: transparent;'>
+        <!-- Gold Divider Line -->
+        <div style='width: 100%; height: 4px; background: linear-gradient(90deg, transparent 0%, #C9A646 20%, #E8D4A0 50%, #C9A646 80%, transparent 100%); margin-bottom: 40px;'></div>
+        
+        <!-- Footer Content -->
+        <div style='text-align: center; padding: 48px 32px; background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%); border-radius: 12px; box-shadow: 0 8px 24px rgba(138, 21, 56, 0.25); position: relative; overflow: hidden;'>
+            
+            <!-- Top Border -->
+            <div style='position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);'></div>
+            
+            <!-- Ministry Logo (if needed) -->
+            <div style='margin-bottom: 24px;'>
+                <img src='https://i.imgur.com/XLef7tS.png' style='width: 100px; height: auto; opacity: 0.95;' alt='Ministry Logo'>
+            </div>
+            
+            <!-- Copyright Notice -->
+            <p style='color: #FFFFFF; font-weight: 700; font-size: 16px; margin-bottom: 20px; letter-spacing: 0.03em; line-height: 1.6;'>
+                © 2025 وزارة التربية والتعليم والتعليم العالي
+            </p>
+            <p style='color: #FFFFFF; font-weight: 700; font-size: 16px; margin-bottom: 8px; letter-spacing: 0.02em;'>
+                جميع الحقوق محفوظة
+            </p>
+            
+            <!-- Gold Separator -->
+            <div style='width: 80px; height: 3px; background: #C9A646; margin: 24px auto; border-radius: 2px;'></div>
+            
+            <!-- School Name -->
+            <p style='color: #FFFFFF; font-weight: 700; font-size: 17px; margin-bottom: 16px; letter-spacing: 0.01em;'>
+                مدرسة عثمان بن عفان النموذجية للبنين
+            </p>
+            
+            <!-- Coordinator Info -->
+            <p style='color: #FFFFFF; font-weight: 600; font-size: 15px; margin-bottom: 16px; opacity: 0.95;'>
+                منسقة المشاريع الإلكترونية / سحر عثمان
+            </p>
+            
+            <!-- Contact Email -->
+            <p style='color: #F5F5F5; font-size: 14px; margin: 0; opacity: 0.9;'>
+                📧 للتواصل: <a href='mailto:S.mahgoub0101@education.qa' style='color: #C9A646; font-weight: 600; text-decoration: none; transition: opacity 0.3s; border-bottom: 1px solid #C9A646;'>S.mahgoub0101@education.qa</a>
+            </p>
+            
+            <!-- Bottom Info -->
+            <p style='color: #F5F5F5; font-size: 12px; margin-top: 24px; opacity: 0.8; letter-spacing: 0.02em;'>
+                تطوير وتصميم: قسم التحول الرقمي
+            </p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
