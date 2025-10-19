@@ -225,9 +225,9 @@ def create_pivot_table(df):
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=120, use_column_width=False)
+    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=120)
 
-st.markdown("<div class='header-container'><h1>📊 محلل التقييمات الأسبوعية</h1><p>وزارة التربية والتعليم والتعليم العالي</p><p style='color: #D4A574;'>لضمان تنمية رقمية مستدامة</p></div>", unsafe_allow_html=True)
+st.markdown("<div class='header-container'><div style='display: flex; justify-content: center; align-items: center; gap: 30px; margin-bottom: 20px;'><img src='https://i.imgur.com/1bX5dzp.jpeg' style='height: 100px;'><img src='https://i.imgur.com/jFzu8As.jpeg' style='height: 100px;'></div><h1>محلل التقييمات الأسبوعية</h1><p>وزارة التربية والتعليم والتعليم العالي</p><p style='color: #D4A574;'>لضمان تنمية رقمية مستدامة</p></div>", unsafe_allow_html=True)
 
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
@@ -235,7 +235,7 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
-    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=100, use_column_width=False)
+    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=100)
     st.markdown("---")
     st.header("الإعدادات")
     
