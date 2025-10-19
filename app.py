@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, io, re, zipfile, logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Tuple, Optional, List
 
 import streamlit as st
@@ -21,7 +21,6 @@ QATAR_GOLD   = (201, 166, 70)
 
 # ---------------- Foundation ----------------
 def setup_app():
-    """تهيئة الصفحة والستايل وحالة الجلسة مرة واحدة."""
     APP_TITLE = "إنجاز -تحليل القييمات الأسبوعية على نظام قطر للتعليم"
 
     st.set_page_config(
@@ -70,10 +69,9 @@ def setup_app():
       background:linear-gradient(180deg,#8A1538 0%,#6B1029 100%)!important;
       border-right:2px solid #C9A646;box-shadow:4px 0 16px rgba(0,0,0,.15)
     }
-    /* تبقى النصوص العامة باللون الأبيض */
     [data-testid="stSidebar"] *{ color:#fff !important; }
 
-    /* ✅ حقول الإدخال في الشريط الجانبي: نص أسود وخلفية بيضاء */
+    /* ✅ مظهر حقول الإدخال في الشريط الجانبي */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] textarea,
     [data-testid="stSidebar"] select {
@@ -117,7 +115,7 @@ def setup_app():
       </div>
       <p class='subtitle'>لوحة مهنية لقياس التقدم وتحليل النتائج</p>
       <p class='accent-line'>هوية إنجاز • دعم العربية الكامل</p>
-      <p class='description'>اختر الملفات (يتم تجاهل الأعمدة التي تحتوي على شرطة - في العناوين)</p>
+      <p class='description'>فلترة الأعمدة حسب تاريخ الاستحقاق (يُقرأ من الخلية H3 لكل عمود)</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -148,6 +146,54 @@ def prepare_logo_file(logo_file) -> Optional[str]:
         return path
     except Exception:
         return None
+
+# ---------- Due-date helpers ----------
+def parse_due_date_cell(cell) -> Optional[date]:
+    """
+    يحوّل قيمة خلية تاريخ (قد تكون نص، datetime، أو رقم تسلسلي Excel) إلى date.
+    - يقرأ صف التاريخ من H3 أي df.iloc[2, col]
+    """
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return None
+
+    # مباشرة datetime/Timestamp
+    if isinstance(cell, (pd.Timestamp, )):
+        return cell.date()
+    if hasattr(cell, "date"):
+        try:
+            return cell.date()
+        except Exception:
+            pass
+
+    # رقم تسلسلي Excel
+    try:
+        if isinstance(cell, (int, float)) and not pd.isna(cell):
+            base = pd.to_datetime("1899-12-30")  # قاعدة Excel
+            d = base + pd.to_timedelta(float(cell), unit="D")
+            if 2000 <= d.year <= 2100:
+                return d.date()
+    except Exception:
+        pass
+
+    # نصوص متعددة الصيغ
+    try:
+        d = pd.to_datetime(str(cell), dayfirst=True, errors="coerce")
+        if pd.notna(d) and 2000 <= d.year <= 2100:
+            return d.date()
+    except Exception:
+        pass
+
+    return None
+
+def in_range(d: Optional[date], start: Optional[date], end: Optional[date]) -> bool:
+    """إرجاع True إذا كان d داخل [start..end] (شامل)، أو إذا لم يحدد المدى."""
+    if not (start and end):
+        return True
+    if d is None:
+        return False
+    if start > end:
+        start, end = end, start
+    return (start <= d <= end)
 
 # ---------- PDF ----------
 def make_student_pdf_fpdf(
@@ -250,8 +296,12 @@ def make_student_pdf_fpdf(
         pdf.set_xy(x,yb+10); pdf.cell(w-4,6, rtl("التوقيع: __________________    التاريخ: __________"), align="R")
 
     out = pdf.output(dest="S")
-    if isinstance(out,str): out = out.encode("latin-1","ignore")
-    return out
+    # تحقّق أن النتيجة bytes دائمًا لتفادي خطأ التنزيل
+    if isinstance(out, bytes):
+        return out
+    if isinstance(out, str):
+        return out.encode("latin-1", "ignore")
+    return bytes(out)
 
 # ---------- Data Logic ----------
 CATEGORY_COLORS = {
@@ -271,29 +321,40 @@ def parse_sheet_name(sheet_name: str):
         return sheet_name,"",""
 
 @st.cache_data
-def analyze_excel_file(file, sheet_name):
+def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end: Optional[date]=None):
     """
-    - لا يوجد فلتر تاريخ.
+    - فلترة بالتاريخ باستخدام صف تاريخ الاستحقاق H3: df.iloc[2, col]
     - تجاهل أي عمود عنوانه يحتوي على شرطة '-' أو '—' أو '–'.
-    - تجاهل الأعمدة التي كلها شرطات (كما كان).
-    - تجاهل الخلايا '-'/'—'/فارغة.. ولا تُحتسب ضمن الإجمالي.
-    - الخلية 'M' تُحتسب "مستحق غير منجز" (تزيد الإجمالي وتُضاف للمتبقي).
+    - تجاهل الأعمدة التي كلها شرطات/فراغات.
+    - تجاهل الخلايا '-'/'—'/فارغة ولا تُحتسب ضمن الإجمالي.
+    - 'M' = مستحق غير منجز (يزيد الإجمالي ويُعد متبقّي).
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
 
+        filter_active = (due_start is not None and due_end is not None)
+        if filter_active and due_start > due_end:
+            due_start, due_end = due_end, due_start
+
         assessment_columns=[]
-        for c in range(7, df.shape[1]):  # بدءًا من العمود H
+        for c in range(7, df.shape[1]):  # بدءاً من H
             title = df.iloc[0,c] if c < df.shape[1] else None
             if pd.isna(title): break
             t = str(title).strip()
 
-            # 1) تجاهل الأعمدة التي عنوانها يحتوي على شرطة
+            # 1) تجاهل العناوين التي تحتوي على شرطة
             if any(ch in t for ch in ['-', '—', '–']):
                 continue
 
-            # 2) تجاهل الأعمدة التي تحتوي فقط على شرطات/فراغات (نفس المنطق السابق)
+            # 2) قراءة تاريخ الاستحقاق من الصف الثالث (H3)
+            due_cell = df.iloc[2, c] if c < df.shape[1] else None
+            due_dt = parse_due_date_cell(due_cell)
+
+            if filter_active and not in_range(due_dt, due_start, due_end):
+                continue
+
+            # 3) تجاهل الأعمدة الفارغة (كلها شرطات)
             all_dash = True
             for r in range(4, min(len(df), 20)):
                 val = df.iloc[r, c]
@@ -325,7 +386,6 @@ def analyze_excel_file(file, sheet_name):
                 s = "" if pd.isna(raw) else str(raw).strip().upper()
 
                 if s in IGNORE:
-                    # تجاهل كامل — لا يضاف للإجمالي
                     continue
                 if s == 'M':  # مستحق غير منجز
                     total += 1; pending.append(title); continue
@@ -475,6 +535,17 @@ with st.sidebar:
 
     st.session_state.selected_sheets = selected_sheets
 
+    # فلتر تاريخ الاستحقاق (يقرأ من H3 لكل عمود)
+    st.subheader("⏳ فلترة تاريخ الاستحقاق (من — إلى)")
+    default_start = date.today().replace(day=1)
+    default_end   = date.today()
+    range_val = st.date_input("اختر المدى", value=(default_start, default_end), format="YYYY-MM-DD", key="due_range")
+    # تأكد من قيم صحيحة
+    if isinstance(range_val, (list, tuple)) and len(range_val) >= 2:
+        due_start, due_end = range_val[0], range_val[1]
+    else:
+        due_start, due_end = None, None
+
     # شعار المدرسة (اختياري)
     st.subheader("🖼️ شعار المدرسة (اختياري)")
     logo_file = st.file_uploader("ارفع شعار PNG/JPG", type=["png","jpg","jpeg"], key="logo_file")
@@ -515,14 +586,14 @@ elif run_analysis:
         with st.spinner("⏳ جاري التحليل..."):
             rows=[]
             for file, sheet in sheets_to_use:
-                rows.extend(analyze_excel_file(file, sheet))
+                rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
             if rows:
                 df = pd.DataFrame(rows)
                 st.session_state.analysis_results = df
                 st.session_state.pivot_table = create_pivot_table(df)
                 st.success(f"✅ تم تحليل {len(st.session_state.pivot_table)} طالب عبر {df['subject'].nunique()} مادة")
             else:
-                st.warning("⚠️ لم يتم استخراج بيانات من الأوراق المحددة. تأكد من تنسيق الجداول.")
+                st.warning("⚠️ لم يتم استخراج بيانات من الأوراق المحددة. تأكد من تنسيق الجداول وتواريخ الاستحقاق.")
 
 # عرض
 pivot = st.session_state.pivot_table
@@ -604,6 +675,10 @@ if pivot is not None and not pivot.empty:
             admin_deputy=admin_deputy or "", principal_name=principal_name or "",
             font_info=st.session_state.font_info, logo_path=st.session_state.logo_path
         )
+        # تأكيد نوع البيانات bytes
+        if not isinstance(pdf_one, bytes):
+            pdf_one = bytes(pdf_one)
+
         st.download_button("📥 تحميل تقرير الطالب (PDF)", pdf_one,
                            file_name=f"student_report_{sel}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                            mime="application/pdf", use_container_width=True)
@@ -633,6 +708,8 @@ if pivot is not None and not pivot.empty:
                             admin_deputy=admin_deputy or "", principal_name=principal_name or "",
                             font_info=st.session_state.font_info, logo_path=st.session_state.logo_path
                         )
+                        if not isinstance(pdfb, bytes):
+                            pdfb = bytes(pdfb)
                         safe = re.sub(r"[^\w\-]+","_", str(stu))
                         z.writestr(f"{safe}.pdf", pdfb)
                 buf.seek(0)
