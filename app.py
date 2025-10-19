@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, io, re, zipfile, logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from typing import Tuple, Optional, List
 
 import streamlit as st
@@ -71,7 +71,7 @@ def setup_app():
     }
     [data-testid="stSidebar"] *{ color:#fff !important; }
 
-    /* ✅ مظهر حقول الإدخال في الشريط الجانبي */
+    /* ✅ مدخلات الشريط الجانبي بخلفية بيضاء ونص أسود */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] textarea,
     [data-testid="stSidebar"] select {
@@ -148,15 +148,22 @@ def prepare_logo_file(logo_file) -> Optional[str]:
         return None
 
 # ---------- Due-date helpers ----------
-def parse_due_date_cell(cell) -> Optional[date]:
+def _normalize_arabic_digits(s: str) -> str:
+    return s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+
+def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
     """
-    يحوّل قيمة خلية تاريخ (قد تكون نص، datetime، أو رقم تسلسلي Excel) إلى date.
-    - يقرأ صف التاريخ من H3 أي df.iloc[2, col]
+    يحوّل H3 إلى تاريخ:
+    - يدعم Timestamp/Datetime، رقم تسلسلي Excel، أو نص عربي مثل "2 أكتوبر".
+    - في حال غياب السنة بالنص، نستخدم السنة الافتراضية (سنة اليوم افتراضًا).
     """
+    if default_year is None:
+        default_year = date.today().year
+
     if cell is None or (isinstance(cell, float) and pd.isna(cell)):
         return None
 
-    # مباشرة datetime/Timestamp
+    # 1) Timestamp/Datetime
     if isinstance(cell, (pd.Timestamp, )):
         return cell.date()
     if hasattr(cell, "date"):
@@ -165,28 +172,52 @@ def parse_due_date_cell(cell) -> Optional[date]:
         except Exception:
             pass
 
-    # رقم تسلسلي Excel
+    # 2) Excel serial
     try:
         if isinstance(cell, (int, float)) and not pd.isna(cell):
-            base = pd.to_datetime("1899-12-30")  # قاعدة Excel
+            base = pd.to_datetime("1899-12-30")
             d = base + pd.to_timedelta(float(cell), unit="D")
             if 2000 <= d.year <= 2100:
                 return d.date()
     except Exception:
         pass
 
-    # نصوص متعددة الصيغ
+    # 3) نص عربي (يوم + اسم شهر)
     try:
-        d = pd.to_datetime(str(cell), dayfirst=True, errors="coerce")
-        if pd.notna(d) and 2000 <= d.year <= 2100:
-            return d.date()
+        s = str(cell).strip()
+        if not s:
+            return None
+        s = _normalize_arabic_digits(s)
+
+        ar_months = {
+            "يناير":1, "فبراير":2, "مارس":3, "ابريل":4, "أبريل":4,
+            "مايو":5, "يونيو":6, "يوليو":7, "اغسطس":8, "أغسطس":8,
+            "سبتمبر":9, "اكتوبر":10, "أكتوبر":10, "تشرين الأول":10,
+            "نوفمبر":11, "ديسمبر":12
+        }
+
+        import re
+        m = re.search(r"(\d{1,2})\s*[-/ ]*\s*([^\d\s]+)", s)
+        if m:
+            day = int(m.group(1))
+            mon_name = m.group(2).strip()
+            mon_norm = (mon_name.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ـ","").strip())
+            month = ar_months.get(mon_name) or ar_months.get(mon_norm)
+            if month:
+                try:
+                    return pd.Timestamp(year=default_year, month=month, day=day).date()
+                except Exception:
+                    return date(default_year, month, min(day, 28))
+
+        dt = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.notna(dt):
+            return dt.date()
     except Exception:
         pass
 
     return None
 
 def in_range(d: Optional[date], start: Optional[date], end: Optional[date]) -> bool:
-    """إرجاع True إذا كان d داخل [start..end] (شامل)، أو إذا لم يحدد المدى."""
     if not (start and end):
         return True
     if d is None:
@@ -269,13 +300,12 @@ def make_student_pdf_fpdf(
     set_font(12, (0,0,0))
     pdf.cell(0,8, rtl(f"منجز: {total_solved}    متبقي: {max(total_total-total_solved,0)}    نسبة حل التقييمات: {overall_avg:.1f}%"), ln=1, align="R")
 
-    # توصية
+    # توصية وروابط
     pdf.ln(2); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("توصية منسق المشاريع:"), ln=1, align="R")
     set_font(11, (0,0,0))
     for line in (reco_text or "—").splitlines() or ["—"]:
         pdf.multi_cell(0,7, rtl(line), align="R")
 
-    # روابط
     pdf.ln(2); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("روابط مهمة:"), ln=1, align="R")
     set_font(11, (0,0,0))
     pdf.cell(0,7, rtl("رابط نظام قطر: https://portal.education.qa"), ln=1, align="R")
@@ -296,12 +326,7 @@ def make_student_pdf_fpdf(
         pdf.set_xy(x,yb+10); pdf.cell(w-4,6, rtl("التوقيع: __________________    التاريخ: __________"), align="R")
 
     out = pdf.output(dest="S")
-    # تحقّق أن النتيجة bytes دائمًا لتفادي خطأ التنزيل
-    if isinstance(out, bytes):
-        return out
-    if isinstance(out, str):
-        return out.encode("latin-1", "ignore")
-    return bytes(out)
+    return out if isinstance(out, bytes) else out.encode("latin-1", "ignore")
 
 # ---------- Data Logic ----------
 CATEGORY_COLORS = {
@@ -347,10 +372,9 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
             if any(ch in t for ch in ['-', '—', '–']):
                 continue
 
-            # 2) قراءة تاريخ الاستحقاق من الصف الثالث (H3)
+            # 2) قراءة تاريخ الاستحقاق من H3
             due_cell = df.iloc[2, c] if c < df.shape[1] else None
-            due_dt = parse_due_date_cell(due_cell)
-
+            due_dt   = parse_due_date_cell(due_cell, default_year=date.today().year)
             if filter_active and not in_range(due_dt, due_start, due_end):
                 continue
 
@@ -389,7 +413,6 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
                     continue
                 if s == 'M':  # مستحق غير منجز
                     total += 1; pending.append(title); continue
-                # أي قيمة أخرى تُعدّ إنجازًا
                 total += 1; done += 1
 
             pct = (done/total*100) if total>0 else 0.0
@@ -540,7 +563,6 @@ with st.sidebar:
     default_start = date.today().replace(day=1)
     default_end   = date.today()
     range_val = st.date_input("اختر المدى", value=(default_start, default_end), format="YYYY-MM-DD", key="due_range")
-    # تأكد من قيم صحيحة
     if isinstance(range_val, (list, tuple)) and len(range_val) >= 2:
         due_start, due_end = range_val[0], range_val[1]
     else:
@@ -675,7 +697,6 @@ if pivot is not None and not pivot.empty:
             admin_deputy=admin_deputy or "", principal_name=principal_name or "",
             font_info=st.session_state.font_info, logo_path=st.session_state.logo_path
         )
-        # تأكيد نوع البيانات bytes
         if not isinstance(pdf_one, bytes):
             pdf_one = bytes(pdf_one)
 
