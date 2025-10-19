@@ -356,11 +356,19 @@ def analyze_excel_file(file, sheet_name):
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
         
+        # البحث عن صف العناوين (الصف الذي يحتوي على "الطالب" أو أسماء الطلاب)
+        header_row = 0
+        for idx in range(min(10, len(df))):
+            if pd.notna(df.iloc[idx, 0]) and any(keyword in str(df.iloc[idx, 0]).lower() for keyword in ['طالب', 'اسم', 'student']):
+                header_row = idx
+                break
+        
+        # قراءة التواريخ من الصف الثاني أو الثالث
         due_dates = []
         try:
-            for col_idx in [8, 9, 10]:
-                if col_idx < df.shape[1]:
-                    cell_value = df.iloc[1, col_idx]
+            for row_idx in range(1, min(4, len(df))):
+                for col_idx in range(7, min(df.shape[1], 20)):
+                    cell_value = df.iloc[row_idx, col_idx]
                     if pd.notna(cell_value):
                         try:
                             due_date = pd.to_datetime(cell_value)
@@ -374,44 +382,87 @@ def analyze_excel_file(file, sheet_name):
         level = level_from_name
         section = section_from_name
         
+        # قراءة عناوين التقييمات من الصف الأول
         assessment_titles = []
+        assessment_start_col = 7  # العمود H (index 7)
+        
         try:
-            for col_idx in range(7, df.shape[1]):
-                title = df.iloc[0, col_idx]
+            # البحث عن أول صف يحتوي على عناوين التقييمات
+            title_row = 0
+            for idx in range(min(4, len(df))):
+                cell_value = df.iloc[idx, assessment_start_col]
+                if pd.notna(cell_value):
+                    cell_str = str(cell_value).strip()
+                    # إذا كان يحتوي على نص وليس فقط أرقام
+                    if cell_str and not cell_str.replace('.', '').replace('%', '').isdigit():
+                        title_row = idx
+                        break
+            
+            # قراءة عناوين التقييمات
+            for col_idx in range(assessment_start_col, df.shape[1]):
+                title = df.iloc[title_row, col_idx]
                 if pd.notna(title):
                     title_str = str(title).strip()
-                    if title_str and title_str not in ['-', '—', 'nan', '']:
+                    if title_str and title_str not in ['-', '—', 'nan', '', 'Overall', 'M', 'I', 'AB', 'X']:
                         assessment_titles.append(title_str)
+                    else:
+                        break  # توقف عند أول عمود فارغ أو غير صالح
         except (IndexError, KeyError):
             pass
         
         total_assessments = len(assessment_titles)
+        
+        if total_assessments == 0:
+            st.warning(f"⚠️ لم يتم العثور على تقييمات في ورقة: {sheet_name}")
+            return []
+        
         results = []
         
+        # البدء من الصف الذي يلي العناوين
+        start_row = max(4, header_row + 1)
+        
         try:
-            for idx in range(4, len(df)):
-                student_name = df.iloc[idx, 0]
+            for idx in range(start_row, len(df)):
+                student_name = df.iloc[idx, 0]  # العمود A
+                
+                # تخطي الصفوف الفارغة
                 if pd.isna(student_name) or str(student_name).strip() == "":
                     continue
                 
                 student_name_clean = " ".join(str(student_name).strip().split())
+                
+                # حساب التقييمات المنجزة والمتبقية
                 m_count = 0
                 pending_titles = []
                 
-                for i, col_idx in enumerate(range(7, df.shape[1])):
-                    if i < len(assessment_titles):
-                        cell_value = df.iloc[idx, col_idx]
-                        if pd.isna(cell_value):
-                            m_count += 1
+                for i in range(total_assessments):
+                    col_idx = assessment_start_col + i
+                    if col_idx >= df.shape[1]:
+                        break
+                    
+                    cell_value = df.iloc[idx, col_idx]
+                    
+                    # التحقق من القيمة
+                    is_missing = False
+                    
+                    if pd.isna(cell_value):
+                        is_missing = True
+                    else:
+                        cell_str = str(cell_value).strip().upper()
+                        # اعتبار M أو فارغ أو - كمتبقي
+                        if cell_str in ['M', '-', '—', '', 'NAN']:
+                            is_missing = True
+                        # إذا كانت رقم صغير جداً (أقل من 1)
+                        try:
+                            if float(cell_str) < 1:
+                                is_missing = True
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    if is_missing:
+                        m_count += 1
+                        if i < len(assessment_titles):
                             pending_titles.append(assessment_titles[i])
-                        else:
-                            cell_str = str(cell_value).strip().upper()
-                            if cell_str in ['-', '—', 'NAN', '']:
-                                m_count += 1
-                                pending_titles.append(assessment_titles[i])
-                            elif cell_str == 'M':
-                                m_count += 1
-                                pending_titles.append(assessment_titles[i])
                 
                 completed_count = total_assessments - m_count
                 solve_pct = (completed_count / total_assessments * 100) if total_assessments > 0 else 0.0
@@ -424,48 +475,91 @@ def analyze_excel_file(file, sheet_name):
                     "solve_pct": solve_pct,
                     "completed_count": completed_count,
                     "total_count": total_assessments,
-                    "pending_titles": ", ".join(pending_titles) if pending_titles else "",
+                    "pending_titles": ", ".join(pending_titles) if pending_titles else "-",
                     "due_dates": due_dates
                 })
         except (IndexError, KeyError) as e:
-            logger.error(f"خطأ: {str(e)}")
+            logger.error(f"خطأ في قراءة البيانات: {str(e)}")
         
+        logger.info(f"تم تحليل {len(results)} طالب من ورقة {sheet_name}")
         return results
+        
     except Exception as e:
-        logger.error(f"خطأ: {str(e)}")
-        st.error(f"خطأ: {str(e)}")
+        logger.error(f"خطأ في analyze_excel_file: {str(e)}")
+        st.error(f"❌ خطأ في تحليل الملف: {str(e)}")
         return []
 
 @st.cache_data
 def create_pivot_table(df):
     try:
-        df_clean = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
-        unique_students = df_clean.groupby(['student_name', 'level', 'section']).size().reset_index(name='count')
-        unique_students = unique_students[['student_name', 'level', 'section']]
+        # التأكد من وجود البيانات
+        if df.empty:
+            st.warning("⚠️ لا توجد بيانات للتحليل")
+            return pd.DataFrame()
+        
+        # طباعة أسماء الأعمدة للتشخيص
+        logger.info(f"Columns in dataframe: {df.columns.tolist()}")
+        
+        # تنظيف البيانات
+        df_clean = df.copy()
+        
+        # التأكد من وجود الأعمدة المطلوبة
+        required_cols = ['student_name', 'level', 'section', 'subject', 'total_count', 'completed_count', 'solve_pct']
+        missing_cols = [col for col in required_cols if col not in df_clean.columns]
+        if missing_cols:
+            st.error(f"❌ أعمدة مفقودة: {', '.join(missing_cols)}")
+            return pd.DataFrame()
+        
+        # إزالة التكرارات
+        df_clean = df_clean.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
+        
+        # الحصول على قائمة الطلاب الفريدة
+        unique_students = df_clean[['student_name', 'level', 'section']].drop_duplicates()
         unique_students = unique_students.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
         result = unique_students.copy()
         
+        # الحصول على قائمة المواد
         subjects = sorted(df_clean['subject'].unique())
         
+        # إضافة بيانات كل مادة
         for subject in subjects:
-            subject_df = df_clean[df_clean['subject'] == subject][['student_name', 'level', 'section', 'total_count', 'completed_count', 'pending_titles', 'solve_pct']].copy()
-            subject_df = subject_df.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
+            subject_data = df_clean[df_clean['subject'] == subject].copy()
+            
+            # إنشاء DataFrame للمادة الحالية
+            subject_df = subject_data[['student_name', 'level', 'section', 'total_count', 'completed_count', 'solve_pct']].copy()
+            
+            # التأكد من عدم وجود قيم None
+            subject_df['total_count'] = subject_df['total_count'].fillna(0)
+            subject_df['completed_count'] = subject_df['completed_count'].fillna(0)
+            subject_df['solve_pct'] = subject_df['solve_pct'].fillna(0)
+            
+            # إعادة تسمية الأعمدة
             subject_df = subject_df.rename(columns={
                 'total_count': f"{subject} - إجمالي",
                 'completed_count': f"{subject} - منجز",
-                'pending_titles': f"{subject} - متبقي",
                 'solve_pct': f"{subject} - النسبة"
             })
+            
+            # إزالة التكرارات
+            subject_df = subject_df.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
+            
+            # دمج مع النتيجة الرئيسية
             result = result.merge(subject_df, on=['student_name', 'level', 'section'], how='left')
+            
+            # إضافة عمود المتبقي
+            pending_data = subject_data[['student_name', 'level', 'section', 'pending_titles']].copy()
+            pending_data = pending_data.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
+            pending_data = pending_data.rename(columns={'pending_titles': f"{subject} - متبقي"})
+            result = result.merge(pending_data, on=['student_name', 'level', 'section'], how='left')
         
+        # حساب المتوسط
         pct_cols = [col for col in result.columns if 'النسبة' in col]
         if pct_cols:
-            result['المتوسط'] = result[pct_cols].mean(axis=1)
+            result['المتوسط'] = result[pct_cols].mean(axis=1, skipna=True)
+            result['المتوسط'] = result['المتوسط'].fillna(0)
             
             def categorize(pct):
-                if pd.isna(pct):
-                    return "-"
-                elif pct == 0:
+                if pd.isna(pct) or pct == 0:
                     return "لا يستفيد 🚫"
                 elif pct >= 90:
                     return "بلاتينية 🥇"
@@ -480,11 +574,30 @@ def create_pivot_table(df):
             
             result['الفئة'] = result['المتوسط'].apply(categorize)
         
-        result = result.rename(columns={'student_name': 'الطالب', 'level': 'الصف', 'section': 'الشعبة'})
+        # إعادة تسمية الأعمدة الرئيسية
+        result = result.rename(columns={
+            'student_name': 'الطالب',
+            'level': 'الصف',
+            'section': 'الشعبة'
+        })
+        
+        # ملء القيم المفقودة
+        for col in result.columns:
+            if 'إجمالي' in col or 'منجز' in col:
+                result[col] = result[col].fillna(0).astype(int)
+            elif 'النسبة' in col or col == 'المتوسط':
+                result[col] = result[col].fillna(0).round(1)
+            elif 'متبقي' in col:
+                result[col] = result[col].fillna('-')
+        
+        # إزالة التكرارات النهائية
         result = result.drop_duplicates(subset=['الطالب', 'الصف', 'الشعبة'], keep='first')
+        
         return result.reset_index(drop=True)
+        
     except Exception as e:
-        logger.error(f"خطأ: {str(e)}")
+        logger.error(f"خطأ في create_pivot_table: {str(e)}")
+        st.error(f"❌ خطأ في معالجة البيانات: {str(e)}")
         return pd.DataFrame()
 
 # Header with Logos - Improved Layout
