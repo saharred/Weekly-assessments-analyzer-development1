@@ -160,7 +160,7 @@ st.markdown("""
     
     /* Typography */
     h1, h2, h3, h4, h5, h6 { 
-        color: #8A1538;
+        color: #FFFFFF;
         font-weight: 600;
     }
     
@@ -227,6 +227,32 @@ st.markdown("""
         background: #8A1538 !important;
         color: #FFFFFF !important;
         transform: translateY(-1px) !important;
+    }
+    
+    /* File Uploader Button - Browse Files */
+    [data-testid="stFileUploader"] label {
+        color: #8A1538 !important;
+        font-weight: 600 !important;
+    }
+    
+    [data-testid="stFileUploader"] button {
+        background: #FFFFFF !important;
+        color: #8A1538 !important;
+        border: 2px solid #8A1538 !important;
+        font-weight: 600 !important;
+    }
+    
+    [data-testid="stFileUploader"] button:hover {
+        background: #8A1538 !important;
+        color: #FFFFFF !important;
+    }
+    
+    [data-testid="stFileUploader"] section {
+        border-color: #8A1538 !important;
+    }
+    
+    [data-testid="stFileUploader"] small {
+        color: #FFFFFF !important;
     }
     
     /* Dataframe Styling */
@@ -417,15 +443,6 @@ col1, col2, col3 = st.columns([1, 1.5, 1])
 with col1:
     st.markdown("<div class='logo-left'>", unsafe_allow_html=True)
     st.image("https://i.imgur.com/QfVfT9X.jpeg", width=120)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with col3:
-    st.markdown("<div class='logo-right-group'>", unsafe_allow_html=True)
-    subcol1, subcol2 = st.columns(2)
-    with subcol1:
-        st.image("https://i.imgur.com/jFzu8As.jpeg", width=110)
-    with subcol2:
-        st.image("https://i.imgur.com/XLef7tS.png", width=130)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # Main Header
