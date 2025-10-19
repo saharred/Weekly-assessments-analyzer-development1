@@ -1,14 +1,369 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
-from typing import Tuple, Dict, List
+import matplotlib.pyplot as plt
+import zipfile
 import io
 import base64
+from datetime import datetime
+from typing import Tuple, Dict, List
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+st.set_page_config(
+    page_title="محلل التقييمات الأسبوعية",
+    page_icon="https://i.imgur.com/XLef7tS.png",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+    
+    * { 
+        font-family: 'Cairo', 'Segoe UI', -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+    
+    /* Main Background */
+    .main { background: #FFFFFF; }
+    body { background: #FFFFFF; }
+    .stApp { background: #FFFFFF; }
+    
+    /* Header Container - Enhanced Branding */
+    .header-container {
+        background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
+        padding: 56px 48px;
+        border-radius: 0;
+        color: #FFFFFF;
+        text-align: center;
+        margin-bottom: 40px;
+        box-shadow: 0 6px 20px rgba(138, 21, 56, 0.25);
+        border-bottom: 4px solid #C9A646;
+        position: relative;
+    }
+    
+    .header-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
+    }
+    
+    .header-container h1 { 
+        margin: 0 0 20px 0;
+        font-size: 40px;
+        font-weight: 700;
+        line-height: 1.25;
+        color: #FFFFFF !important;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        letter-spacing: -0.01em;
+    }
+    
+    .header-container .subtitle { 
+        font-size: 18px;
+        font-weight: 600;
+        opacity: 1;
+        margin: 0 0 16px 0;
+        color: #FFFFFF !important;
+        letter-spacing: 0.01em;
+    }
+    
+    .header-container .accent-line {
+        font-size: 15px;
+        color: #C9A646;
+        font-weight: 600;
+        margin: 0 0 14px 0;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    
+    .header-container .description {
+        font-size: 14px;
+        opacity: 0.95;
+        margin: 0;
+        color: #FFFFFF !important;
+        font-weight: 400;
+        letter-spacing: 0.01em;
+    }
+    
+    /* Sidebar - Solid Qatar Maroon */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #8A1538 0%, #6B1029 100%) !important;
+        border-right: 2px solid #C9A646;
+        box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
+    }
+    
+    [data-testid="stSidebar"] * { 
+        color: white !important;
+    }
+    
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        font-weight: 600;
+        color: #FFFFFF !important;
+    }
+    
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(201, 166, 70, 0.3) !important;
+        margin: 20px 0 !important;
+    }
+    
+    /* Section Box - Clean & Minimal */
+    .section-box {
+        background: #F5F5F5;
+        padding: 28px;
+        border-radius: 12px;
+        margin: 28px 0;
+        border-right: 6px solid #8A1538;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    
+    /* Metric Box - Modern Card Style */
+    .metric-box {
+        background: #FFFFFF;
+        border: 2px solid #E8E8E8;
+        border-right: 5px solid #8A1538;
+        padding: 24px;
+        border-radius: 10px;
+        text-align: center;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+        transition: all 0.3s ease;
+    }
+    
+    .metric-box:hover {
+        border-right-color: #C9A646;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+        transform: translateY(-3px);
+    }
+    
+    .metric-value {
+        font-size: 40px;
+        font-weight: 700;
+        color: #8A1538;
+        line-height: 1.1;
+        margin-bottom: 8px;
+    }
+    
+    .metric-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #4A4A4A;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    
+    /* Buttons - Clean Qatar Maroon */
+    .stButton > button {
+        background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%) !important;
+        color: white !important;
+        border: none !important;
+        padding: 14px 28px !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 15px !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(138, 21, 56, 0.25) !important;
+        letter-spacing: 0.02em !important;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(135deg, #6B1029 0%, #8A1538 100%) !important;
+        box-shadow: 0 6px 20px rgba(138, 21, 56, 0.35) !important;
+        transform: translateY(-2px) !important;
+    }
+    
+    /* Divider */
+    hr { 
+        border-color: #E8E8E8 !important;
+        margin: 32px 0 !important;
+        border-width: 1px !important;
+    }
+    
+    /* Typography */
+    h1, h2, h3, h4, h5, h6 { 
+        color: #FFFFFF;
+        font-weight: 600;
+    }
+    
+    /* Main content headers */
+    .main h1, .main h2, .main h3, .main h4, .main h5, .main h6 {
+        color: #8A1538;
+    }
+    
+    h1 { font-size: 36px; line-height: 1.3; margin-bottom: 16px; font-weight: 700; }
+    h2 { font-size: 28px; line-height: 1.35; margin-bottom: 20px; font-weight: 600; }
+    h3 { font-size: 22px; line-height: 1.4; margin-bottom: 16px; font-weight: 600; }
+    h4 { font-size: 18px; line-height: 1.5; margin-bottom: 12px; font-weight: 600; }
+    
+    p, div, span {
+        font-size: 15px;
+        line-height: 1.7;
+        color: #2C2C2C;
+    }
+    
+    /* Logo Containers */
+    .logo-header-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 48px;
+        background: #F5F5F5;
+        border-bottom: 3px solid #8A1538;
+        margin-bottom: 0;
+    }
+    
+    .logo-left {
+        display: flex;
+        align-items: center;
+        padding: 12px;
+    }
+    
+    .logo-right-group {
+        display: flex;
+        gap: 24px;
+        align-items: center;
+        padding: 12px;
+    }
+    
+    .logo-sidebar-container {
+        text-align: center;
+        padding: 28px 24px;
+        margin-bottom: 28px;
+        border-bottom: 2px solid rgba(201, 166, 70, 0.3);
+    }
+    
+    .logo-footer-container {
+        text-align: center;
+        padding: 24px;
+        margin: 0 auto 20px;
+    }
+    
+    /* Download Buttons */
+    .stDownloadButton > button {
+        background: #FFFFFF !important;
+        color: #8A1538 !important;
+        border: 2px solid #8A1538 !important;
+        padding: 12px 26px !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stDownloadButton > button:hover {
+        background: #8A1538 !important;
+        color: #FFFFFF !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 12px rgba(138, 21, 56, 0.25) !important;
+    }
+    
+    /* File Uploader Button - Browse Files */
+    [data-testid="stFileUploader"] label {
+        color: #FFFFFF !important;
+        font-weight: 600 !important;
+    }
+    
+    [data-testid="stFileUploader"] button {
+        background: rgba(255, 255, 255, 0.15) !important;
+        color: #FFFFFF !important;
+        border: 2px solid rgba(255, 255, 255, 0.3) !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    [data-testid="stFileUploader"] button:hover {
+        background: rgba(255, 255, 255, 0.25) !important;
+        border-color: #C9A646 !important;
+    }
+    
+    [data-testid="stFileUploader"] section {
+        border-color: rgba(255, 255, 255, 0.3) !important;
+    }
+    
+    [data-testid="stFileUploader"] small {
+        color: #FFFFFF !important;
+        opacity: 0.9;
+    }
+    
+    /* Dataframe Styling */
+    [data-testid="stDataFrame"] {
+        border: 2px solid #E8E8E8;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    
+    /* Metrics Enhancement */
+    [data-testid="stMetricValue"] {
+        font-size: 40px !important;
+        font-weight: 700 !important;
+        color: #8A1538 !important;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #4A4A4A !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+    }
+    
+    /* Success/Info Messages */
+    .stSuccess {
+        background-color: rgba(138, 21, 56, 0.1) !important;
+        color: #8A1538 !important;
+        border-right: 4px solid #8A1538 !important;
+    }
+    
+    .stInfo {
+        background-color: rgba(201, 166, 70, 0.1) !important;
+        color: #4A4A4A !important;
+        border-right: 4px solid #C9A646 !important;
+    }
+    
+    /* Chart Container */
+    .chart-container {
+        background: white;
+        border: 2px solid #E5E7EB;
+        border-right: 5px solid #8A1538;
+        border-radius: 12px;
+        padding: 24px;
+        margin: 20px 0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    
+    .chart-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #8A1538;
+        text-align: center;
+        margin-bottom: 16px;
+        font-family: 'Cairo', sans-serif;
+    }
+    
+    .info-box {
+        background: #F5F5F5;
+        border-right: 4px solid #C9A646;
+        padding: 16px;
+        border-radius: 8px;
+        margin: 16px 0;
+        font-family: 'Cairo', sans-serif;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================
-# CONSTANTS & CONFIGURATION
+# CONSTANTS FOR CHARTS
 # ============================================
 
 CATEGORY_THRESHOLDS = {
@@ -29,7 +384,6 @@ CATEGORY_COLORS = {
 
 CATEGORY_ORDER = ['بلاتيني 🥇', 'ذهبي 🥈', 'فضي 🥉', 'برونزي', 'بحاجة لتحسين']
 
-# Keyword mapping for Arabic suffixes
 SUFFIX_KEYWORDS = {
     'total': ['إجمالي', 'اجمالي', 'Total'],
     'solved': ['منجز', 'Solved', 'Completed'],
@@ -37,21 +391,264 @@ SUFFIX_KEYWORDS = {
     'percent': ['النسبة', 'نسبة', 'Percent', '%']
 }
 
-
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
 
-def assign_category(percent: float) -> str:
+def parse_sheet_name(sheet_name):
     """
-    Assign a category based on completion percentage.
-    
-    Args:
-        percent: Completion percentage (0-100)
+    تحليل اسم الورقة لاستخراج المادة والمستوى والشعبة
+    التنسيق المتوقع: "اسم المادة المستوى الشعبة"
+    مثال: "التربية الاسلامية 01 1"
+    """
+    try:
+        parts = sheet_name.strip().split()
         
-    Returns:
-        Category name in Arabic
-    """
+        if len(parts) < 3:
+            return sheet_name.strip(), "", ""
+        
+        section = parts[-1]
+        level = parts[-2]
+        subject_parts = parts[:-2]
+        subject = " ".join(subject_parts)
+        
+        if not (level.isdigit() or (level.startswith('0') and len(level) <= 2)):
+            subject = " ".join(parts[:-1])
+            level = parts[-1]
+            section = ""
+        
+        logger.info(f"تحليل الورقة: '{sheet_name}' → المادة: '{subject}', المستوى: '{level}', الشعبة: '{section}'")
+        
+        return subject, level, section
+        
+    except Exception as e:
+        logger.error(f"خطأ في تحليل اسم الورقة '{sheet_name}': {str(e)}")
+        return sheet_name, "", ""
+
+@st.cache_data
+def analyze_excel_file(file, sheet_name):
+    try:
+        df = pd.read_excel(file, sheet_name=sheet_name, header=None)
+        subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
+        
+        due_dates = []
+        try:
+            for col_idx in range(7, min(df.shape[1], 20)):
+                cell_value = df.iloc[1, col_idx]
+                if pd.notna(cell_value):
+                    try:
+                        due_date = pd.to_datetime(cell_value)
+                        if 2000 <= due_date.year <= 2100:
+                            due_dates.append(due_date.date())
+                    except (ValueError, TypeError):
+                        continue
+        except (IndexError, KeyError):
+            pass
+        
+        level = level_from_name
+        section = section_from_name
+        
+        assessment_columns = []
+        for col_idx in range(7, df.shape[1]):
+            title = df.iloc[0, col_idx] if col_idx < df.shape[1] else None
+            
+            if pd.isna(title):
+                break
+            
+            all_dash = True
+            for row_idx in range(4, min(len(df), 20)):
+                cell_value = df.iloc[row_idx, col_idx]
+                if pd.notna(cell_value):
+                    cell_str = str(cell_value).strip()
+                    if cell_str not in ['-', '—', '']:
+                        all_dash = False
+                        break
+            
+            if not all_dash:
+                assessment_columns.append({
+                    'index': col_idx,
+                    'title': str(title).strip() if pd.notna(title) else f"تقييم {len(assessment_columns) + 1}"
+                })
+        
+        total_assessments = len(assessment_columns)
+        
+        if total_assessments == 0:
+            st.warning(f"⚠️ لم يتم العثور على تقييمات في ورقة: {sheet_name}")
+            return []
+        
+        assessment_titles = [col['title'] for col in assessment_columns]
+        
+        results = []
+        
+        try:
+            for idx in range(4, len(df)):
+                student_name = df.iloc[idx, 0]
+                
+                if pd.isna(student_name) or str(student_name).strip() == "":
+                    continue
+                
+                student_name_clean = " ".join(str(student_name).strip().split())
+                
+                completed_count = 0
+                pending_titles = []
+                
+                for i, col_info in enumerate(assessment_columns):
+                    col_idx = col_info['index']
+                    
+                    if col_idx >= df.shape[1]:
+                        pending_titles.append(col_info['title'])
+                        continue
+                    
+                    cell_value = df.iloc[idx, col_idx]
+                    
+                    is_completed = False
+                    
+                    if pd.isna(cell_value):
+                        is_completed = False
+                    else:
+                        cell_str = str(cell_value).strip().upper()
+                        
+                        if cell_str in ['M', 'I', 'AB', 'X', '-', '—', '', 'NAN', 'NONE']:
+                            is_completed = False
+                        else:
+                            try:
+                                num_value = float(cell_str.replace(',', '.'))
+                                if num_value > 0:
+                                    is_completed = True
+                                else:
+                                    is_completed = False
+                            except (ValueError, TypeError):
+                                if len(cell_str) > 0 and cell_str not in ['M', 'I', 'AB', 'X', '-', '—']:
+                                    is_completed = True
+                    
+                    if is_completed:
+                        completed_count += 1
+                    else:
+                        pending_titles.append(col_info['title'])
+                
+                solve_pct = (completed_count / total_assessments * 100) if total_assessments > 0 else 0.0
+                
+                results.append({
+                    "student_name": student_name_clean,
+                    "subject": subject,
+                    "level": str(level).strip(),
+                    "section": str(section).strip(),
+                    "solve_pct": round(solve_pct, 1),
+                    "completed_count": completed_count,
+                    "total_count": total_assessments,
+                    "pending_titles": ", ".join(pending_titles) if pending_titles else "-",
+                    "due_dates": due_dates
+                })
+        except (IndexError, KeyError) as e:
+            logger.error(f"خطأ في قراءة البيانات: {str(e)}")
+        
+        logger.info(f"✅ تم تحليل {len(results)} طالب من ورقة {sheet_name} - إجمالي {total_assessments} تقييم")
+        return results
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في analyze_excel_file: {str(e)}")
+        st.error(f"❌ خطأ في تحليل الملف: {str(e)}")
+        return []
+
+@st.cache_data
+def create_pivot_table(df):
+    try:
+        if df.empty:
+            st.warning("⚠️ لا توجد بيانات للتحليل")
+            return pd.DataFrame()
+        
+        logger.info(f"Columns in dataframe: {df.columns.tolist()}")
+        
+        df_clean = df.copy()
+        
+        required_cols = ['student_name', 'level', 'section', 'subject', 'total_count', 'completed_count', 'solve_pct']
+        missing_cols = [col for col in required_cols if col not in df_clean.columns]
+        if missing_cols:
+            st.error(f"❌ أعمدة مفقودة: {', '.join(missing_cols)}")
+            return pd.DataFrame()
+        
+        df_clean = df_clean.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='first')
+        
+        unique_students = df_clean[['student_name', 'level', 'section']].drop_duplicates()
+        unique_students = unique_students.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
+        result = unique_students.copy()
+        
+        subjects = sorted(df_clean['subject'].unique())
+        
+        for subject in subjects:
+            subject_data = df_clean[df_clean['subject'] == subject].copy()
+            
+            subject_df = subject_data[['student_name', 'level', 'section', 'total_count', 'completed_count', 'solve_pct']].copy()
+            
+            subject_df['total_count'] = subject_df['total_count'].fillna(0)
+            subject_df['completed_count'] = subject_df['completed_count'].fillna(0)
+            subject_df['solve_pct'] = subject_df['solve_pct'].fillna(0)
+            
+            subject_df = subject_df.rename(columns={
+                'total_count': f"{subject} - إجمالي",
+                'completed_count': f"{subject} - منجز",
+                'solve_pct': f"{subject} - النسبة"
+            })
+            
+            subject_df = subject_df.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
+            
+            result = result.merge(subject_df, on=['student_name', 'level', 'section'], how='left')
+            
+            pending_data = subject_data[['student_name', 'level', 'section', 'pending_titles']].copy()
+            pending_data = pending_data.drop_duplicates(subset=['student_name', 'level', 'section'], keep='first')
+            pending_data = pending_data.rename(columns={'pending_titles': f"{subject} - متبقي"})
+            result = result.merge(pending_data, on=['student_name', 'level', 'section'], how='left')
+        
+        pct_cols = [col for col in result.columns if 'النسبة' in col]
+        if pct_cols:
+            result['المتوسط'] = result[pct_cols].mean(axis=1, skipna=True)
+            result['المتوسط'] = result['المتوسط'].fillna(0)
+            
+            def categorize(pct):
+                if pd.isna(pct) or pct == 0:
+                    return "لا يستفيد 🚫"
+                elif pct >= 90:
+                    return "بلاتينية 🥇"
+                elif pct >= 80:
+                    return "ذهبي 🥈"
+                elif pct >= 70:
+                    return "فضي 🥉"
+                elif pct >= 60:
+                    return "برونزي"
+                else:
+                    return "يحتاج تحسين"
+            
+            result['الفئة'] = result['المتوسط'].apply(categorize)
+        
+        result = result.rename(columns={
+            'student_name': 'الطالب',
+            'level': 'الصف',
+            'section': 'الشعبة'
+        })
+        
+        for col in result.columns:
+            if 'إجمالي' in col or 'منجز' in col:
+                result[col] = result[col].fillna(0).astype(int)
+            elif 'النسبة' in col or col == 'المتوسط':
+                result[col] = result[col].fillna(0).round(1)
+            elif 'متبقي' in col:
+                result[col] = result[col].fillna('-')
+        
+        result = result.drop_duplicates(subset=['الطالب', 'الصف', 'الشعبة'], keep='first')
+        
+        return result.reset_index(drop=True)
+        
+    except Exception as e:
+        logger.error(f"خطأ في create_pivot_table: {str(e)}")
+        st.error(f"❌ خطأ في معالجة البيانات: {str(e)}")
+        return pd.DataFrame()
+
+# ============================================
+# CHART FUNCTIONS
+# ============================================
+
+def assign_category(percent: float) -> str:
+    """تعيين الفئة بناءً على النسبة المئوية"""
     if pd.isna(percent):
         return 'بحاجة لتحسين'
     
@@ -61,30 +658,13 @@ def assign_category(percent: float) -> str:
     
     return 'بحاجة لتحسين'
 
-
 def is_wide_format(df: pd.DataFrame) -> bool:
-    """
-    Detect if the DataFrame is in WIDE format (one row per student with subject columns).
-    
-    Wide format has columns like: "التربية الإسلامية - إجمالي", "الرياضيات - منجز"
-    Long format has columns like: subject, student, solved, total
-    """
-    # Check for subject-suffix pattern in column names
+    """كشف ما إذا كان DataFrame بصيغة واسعة"""
     subject_pattern_count = sum(1 for col in df.columns if ' - ' in str(col))
-    
-    # If more than 20% of columns have the " - " pattern, consider it wide
     return subject_pattern_count > len(df.columns) * 0.2
 
-
 def extract_subject_from_column(col_name: str) -> Tuple[str, str]:
-    """
-    Extract subject name and field type from column name.
-    
-    Example: "التربية الإسلامية - إجمالي" → ("التربية الإسلامية", "total")
-    
-    Returns:
-        (subject_name, field_type)
-    """
+    """استخراج اسم المادة ونوع الحقل من اسم العمود"""
     if ' - ' not in str(col_name):
         return None, None
     
@@ -95,22 +675,14 @@ def extract_subject_from_column(col_name: str) -> Tuple[str, str]:
     subject = parts[0].strip()
     suffix = parts[1].strip()
     
-    # Map suffix to field type
     for field_type, keywords in SUFFIX_KEYWORDS.items():
         if any(keyword in suffix for keyword in keywords):
             return subject, field_type
     
     return subject, 'unknown'
 
-
 def wide_to_long(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert WIDE format to LONG (normalized) format.
-    
-    Input columns: "الطالب", "الصف", "الشعبة", "<Subject> - إجمالي", "<Subject> - منجز", etc.
-    Output columns: student, grade, section, subject, total, solved, remaining, percent
-    """
-    # Identify student info columns (non-subject columns)
+    """تحويل الصيغة الواسعة إلى طويلة"""
     student_cols = []
     for col in ['الطالب', 'student', 'Student', 'الاسم', 'name']:
         if col in df.columns:
@@ -127,7 +699,6 @@ def wide_to_long(df: pd.DataFrame) -> pd.DataFrame:
             student_cols.append(col)
             break
     
-    # Extract subject columns
     subject_data = {}
     for col in df.columns:
         if col in student_cols:
@@ -139,7 +710,6 @@ def wide_to_long(df: pd.DataFrame) -> pd.DataFrame:
                 subject_data[subject] = {}
             subject_data[subject][field_type] = col
     
-    # Build long format
     long_rows = []
     
     for idx, row in df.iterrows():
@@ -149,16 +719,13 @@ def wide_to_long(df: pd.DataFrame) -> pd.DataFrame:
             record = student_info.copy()
             record['subject'] = subject
             
-            # Extract values
             total = row.get(fields.get('total'), 0)
             solved = row.get(fields.get('solved'), 0)
             percent = row.get(fields.get('percent'), None)
             
-            # Handle None/NaN
             total = 0 if pd.isna(total) else float(total)
             solved = 0 if pd.isna(solved) else float(solved)
             
-            # Calculate percent if missing
             if pd.isna(percent) or percent is None:
                 percent = (solved / total * 100) if total > 0 else 0.0
             else:
@@ -173,21 +740,13 @@ def wide_to_long(df: pd.DataFrame) -> pd.DataFrame:
     
     return pd.DataFrame(long_rows)
 
-
 def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize input DataFrame to standard format.
-    
-    Handles both WIDE and LONG formats and returns:
-    [student, grade, section, subject, total, solved, percent, category]
-    """
+    """تطبيع DataFrame للصيغة القياسية"""
     df = df.copy()
     
-    # Detect format
     if is_wide_format(df):
         df = wide_to_long(df)
     
-    # Standardize column names
     column_mapping = {
         'الطالب': 'student',
         'Student': 'student',
@@ -211,38 +770,27 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     
     df = df.rename(columns=column_mapping)
     
-    # Ensure required columns exist
     required_cols = ['subject', 'percent']
     for col in required_cols:
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
     
-    # Calculate percent if missing total/solved
     if 'percent' not in df.columns and 'total' in df.columns and 'solved' in df.columns:
         df['percent'] = df.apply(
             lambda row: (row['solved'] / row['total'] * 100) if row['total'] > 0 else 0.0,
             axis=1
         )
     
-    # Assign categories
     if 'category' not in df.columns:
         df['category'] = df['percent'].apply(assign_category)
     
-    # Fill NaN
     df['percent'] = df['percent'].fillna(0)
     df['category'] = df['category'].fillna('بحاجة لتحسين')
     
     return df
 
-
 def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregate data by subject and category.
-    
-    Returns:
-        DataFrame with: subject, category, count, percent_of_subject, avg_completion
-    """
-    # Group by subject and category
+    """تجميع البيانات حسب المادة والفئة"""
     agg_data = []
     
     for subject in df['subject'].unique():
@@ -264,7 +812,6 @@ def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
     
     agg_df = pd.DataFrame(agg_data)
     
-    # Sort by average completion descending
     subject_order = (
         agg_df.groupby('subject')['avg_completion']
         .first()
@@ -277,22 +824,8 @@ def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
     
     return agg_df
 
-
-def create_stacked_bar_chart(
-    agg_df: pd.DataFrame,
-    mode: str = 'percent'
-) -> go.Figure:
-    """
-    Create a horizontal stacked bar chart.
-    
-    Args:
-        agg_df: Aggregated DataFrame
-        mode: 'percent' for % share or 'count' for absolute counts
-        
-    Returns:
-        Plotly Figure object
-    """
-    # Prepare data
+def create_stacked_bar_chart(agg_df: pd.DataFrame, mode: str = 'percent') -> go.Figure:
+    """إنشاء رسم بياني شريطي مكدس أفقي"""
     subjects = agg_df['subject'].unique()
     
     fig = go.Figure()
@@ -340,27 +873,30 @@ def create_stacked_bar_chart(
             ))
         ))
     
-    # Update layout
     title = "توزيع الفئات حسب المادة" if mode == 'percent' else "عدد الطلاب حسب الفئة والمادة"
     xaxis_title = "النسبة المئوية (%)" if mode == 'percent' else "عدد الطلاب"
     
     fig.update_layout(
         title=dict(
             text=title,
-            font=dict(size=20, family='Cairo', color='#8A1538', weight=700),
+            font=dict(size=20, family='Cairo', color='#8A1538'),
             x=0.5,
             xanchor='center'
         ),
         xaxis=dict(
-            title=xaxis_title,
-            titlefont=dict(size=14, family='Cairo', color='#111827'),
+            title=dict(
+                text=xaxis_title,
+                font=dict(size=14, family='Cairo', color='#111827')
+            ),
             tickfont=dict(size=12, family='Cairo'),
             gridcolor='#E5E7EB',
             range=[0, 100] if mode == 'percent' else None
         ),
         yaxis=dict(
-            title="المادة",
-            titlefont=dict(size=14, family='Cairo', color='#111827'),
+            title=dict(
+                text="المادة",
+                font=dict(size=14, family='Cairo', color='#111827')
+            ),
             tickfont=dict(size=12, family='Cairo'),
             autorange='reversed'
         ),
@@ -384,93 +920,12 @@ def create_stacked_bar_chart(
     
     return fig
 
-
-def export_chart_as_png(fig: go.Figure) -> bytes:
-    """Export Plotly figure as PNG bytes."""
-    return fig.to_image(format="png", width=1200, height=800, scale=2)
-
-
-# ============================================
-# MAIN FUNCTION
-# ============================================
-
 def render_subject_category_chart(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataFrame]:
-    """
-    Render subject-level category distribution chart with full Streamlit UI.
+    """عرض رسم توزيع الفئات حسب المادة"""
     
-    Args:
-        df: Input DataFrame (wide or long format)
-        
-    Returns:
-        (figure, aggregated_dataframe)
-    """
-    
-    # Add custom CSS
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
-        
-        .chart-container {
-            background: white;
-            border: 2px solid #E5E7EB;
-            border-right: 5px solid #8A1538;
-            border-radius: 12px;
-            padding: 24px;
-            margin: 20px 0;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        }
-        
-        .chart-title {
-            font-size: 24px;
-            font-weight: 700;
-            color: #8A1538;
-            text-align: center;
-            margin-bottom: 16px;
-            font-family: 'Cairo', sans-serif;
-        }
-        
-        .info-box {
-            background: #F5F5F5;
-            border-right: 4px solid #C9A646;
-            padding: 16px;
-            border-radius: 8px;
-            margin: 16px 0;
-            font-family: 'Cairo', sans-serif;
-        }
-        
-        .category-legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            justify-content: center;
-            margin: 16px 0;
-            font-family: 'Cairo', sans-serif;
-        }
-        
-        .category-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: white;
-            border: 1px solid #E5E7EB;
-            border-radius: 6px;
-        }
-        
-        .category-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            border: 1px solid #ccc;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Section header
     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
     st.markdown('<h2 class="chart-title">📊 توزيع الفئات حسب المادة الدراسية</h2>', unsafe_allow_html=True)
     
-    # Info box with thresholds
     st.markdown("""
     <div class="info-box">
         <strong>📌 معايير التصنيف:</strong><br>
@@ -483,10 +938,8 @@ def render_subject_category_chart(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataF
     """, unsafe_allow_html=True)
     
     try:
-        # Normalize data
         normalized_df = normalize_dataframe(df)
         
-        # Filters (if grade/section columns exist)
         col_filter1, col_filter2, col_filter3 = st.columns(3)
         
         filtered_df = normalized_df.copy()
@@ -514,20 +967,15 @@ def render_subject_category_chart(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataF
             )
             mode = 'percent' if chart_mode == 'النسبة المئوية (%)' else 'count'
         
-        # Aggregate data
         agg_df = aggregate_by_subject(filtered_df)
         
-        # Create chart
         fig = create_stacked_bar_chart(agg_df, mode=mode)
         
-        # Display chart
         st.plotly_chart(fig, use_container_width=True, key='category_chart')
         
-        # Download buttons
         col_download1, col_download2 = st.columns(2)
         
         with col_download1:
-            # CSV download
             csv = agg_df.to_csv(index=False, encoding='utf-8-sig')
             st.download_button(
                 label="📥 تحميل البيانات (CSV)",
@@ -538,9 +986,8 @@ def render_subject_category_chart(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataF
             )
         
         with col_download2:
-            # PNG download
             try:
-                png_bytes = export_chart_as_png(fig)
+                png_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
                 st.download_button(
                     label="📥 تحميل الرسم البياني (PNG)",
                     data=png_bytes,
@@ -551,34 +998,21 @@ def render_subject_category_chart(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataF
             except Exception as e:
                 st.info("💡 لتحميل الصورة، قم بتثبيت: pip install kaleido")
         
-        # Expandable data table
         with st.expander("📋 عرض البيانات المُجمّعة"):
-            # Prepare display DataFrame
             display_df = agg_df.pivot(
                 index='subject',
                 columns='category',
                 values='count'
             ).fillna(0).astype(int)
             
-            # Add totals and average
             display_df['المجموع'] = display_df.sum(axis=1)
             
-            # Add average completion
             avg_completion = agg_df.groupby('subject')['avg_completion'].first()
             display_df['متوسط الإنجاز (%)'] = avg_completion
             
-            # Rename index
             display_df.index.name = 'المادة'
             
-            st.dataframe(
-                display_df.style.background_gradient(
-                    subset=['متوسط الإنجاز (%)'],
-                    cmap='RdYlGn',
-                    vmin=0,
-                    vmax=100
-                ),
-                use_container_width=True
-            )
+            st.dataframe(display_df, use_container_width=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -589,109 +1023,218 @@ def render_subject_category_chart(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataF
         st.exception(e)
         return None, None
 
-
 # ============================================
-# UNIT TESTS
-# ============================================
-
-def test_wide_to_long_parser():
-    """Test the wide→long parser with synthetic Arabic column names."""
-    
-    # Create synthetic WIDE data
-    test_data = {
-        'الطالب': ['أحمد', 'فاطمة', 'محمد'],
-        'الصف': ['01', '01', '02'],
-        'الشعبة': ['1', '1', '2'],
-        'التربية الإسلامية - إجمالي': [5, 5, 5],
-        'التربية الإسلامية - منجز': [5, 4, 2],
-        'التربية الإسلامية - النسبة': [100, 80, 40],
-        'الرياضيات - إجمالي': [10, 10, 10],
-        'الرياضيات - منجز': [8, 9, 5],
-        'الرياضيات - النسبة': [80, 90, 50]
-    }
-    
-    df_wide = pd.DataFrame(test_data)
-    
-    print("🧪 Testing WIDE → LONG parser...")
-    print("\nOriginal WIDE format:")
-    print(df_wide.head())
-    
-    # Convert to long
-    df_long = wide_to_long(df_wide)
-    
-    print("\nConverted LONG format:")
-    print(df_long.head(6))
-    
-    # Assertions
-    assert 'subject' in df_long.columns, "Missing 'subject' column"
-    assert 'percent' in df_long.columns, "Missing 'percent' column"
-    assert 'category' in df_long.columns, "Missing 'category' column"
-    assert len(df_long) == 6, f"Expected 6 rows (3 students × 2 subjects), got {len(df_long)}"
-    
-    print("\n✅ All tests passed!")
-
-
-# ============================================
-# EXAMPLE USAGE
+# MAIN APPLICATION
 # ============================================
 
-def main():
-    st.set_page_config(
-        page_title="تحليل الفئات - نظام قطر للتعليم",
-        page_icon="📊",
-        layout="wide"
-    )
+st.markdown("")
+st.markdown("")
+
+col1, col2, col3 = st.columns([1, 1.5, 1])
+with col1:
+    st.markdown("<div class='logo-left'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/QfVfT9X.jpeg", width=120)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with col3:
+    st.markdown("<div class='logo-right-group'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/jFzu8As.jpeg", width=120)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown("""
+<div class='header-container'>
+    <div style='display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 20px;'>
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="4" y="4" width="40" height="40" rx="4" fill="#C9A646" opacity="0.15"/>
+            <path d="M12 32V24M18 32V20M24 32V16M30 32V22M36 32V18" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="12" cy="24" r="2.5" fill="#C9A646"/>
+            <circle cx="18" cy="20" r="2.5" fill="#C9A646"/>
+            <circle cx="24" cy="16" r="2.5" fill="#C9A646"/>
+            <circle cx="30" cy="22" r="2.5" fill="#C9A646"/>
+            <circle cx="36" cy="18" r="2.5" fill="#C9A646"/>
+            <path d="M12 24L18 20L24 16L30 22L36 18" stroke="#C9A646" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1 style='margin: 0; font-size: 40px; font-weight: 700; line-height: 1.25; color: #FFFFFF; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); letter-spacing: -0.01em;'>
+            نظام قطر للتعليم - محلل التقييمات الأسبوعية
+        </h1>
+    </div>
+    <p class='subtitle'>وزارة التربية والتعليم والتعليم العالي</p>
+    <p class='accent-line'>ضمان تنمية رقمية مستدامة</p>
+    <p class='description'>نظام تحليل شامل وموثوق لنتائج الطلاب</p>
+</div>
+""", unsafe_allow_html=True)
+
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = None
+if "pivot_table" not in st.session_state:
+    st.session_state.pivot_table = None
+
+with st.sidebar:
+    st.markdown("<div class='logo-sidebar-container'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/XLef7tS.png", width=110)
+    st.markdown("</div>", unsafe_allow_html=True)
     
-    st.title("📊 نظام تحليل الفئات الدراسية")
     st.markdown("---")
+    st.header("⚙️ الإعدادات")
     
-    # Create sample data
-    sample_data = {
-        'الطالب': ['أحمد محمد', 'فاطمة علي', 'محمد حسن', 'سارة أحمد', 'علي خالد'] * 3,
-        'الصف': ['01'] * 15,
-        'الشعبة': ['1'] * 15,
-        'التربية الإسلامية - إجمالي': [5] * 15,
-        'التربية الإسلامية - منجز': [5, 4, 4, 3, 2, 5, 5, 4, 3, 5, 4, 3, 2, 1, 5],
-        'الرياضيات - إجمالي': [10] * 15,
-        'الرياضيات - منجز': [10, 9, 8, 7, 5, 9, 8, 7, 6, 10, 9, 8, 7, 6, 5],
-        'اللغة العربية - إجمالي': [8] * 15,
-        'اللغة العربية - منجز': [8, 7, 6, 5, 4, 7, 6, 5, 8, 7, 6, 5, 4, 3, 8]
-    }
+    st.subheader("📁 تحميل الملفات")
+    uploaded_files = st.file_uploader("اختر ملفات Excel", type=["xlsx", "xls"], accept_multiple_files=True)
     
-    df = pd.DataFrame(sample_data)
+    selected_sheets = []
+    if uploaded_files:
+        st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
+        all_sheets = []
+        sheet_file_map = {}
+        for file_idx, file in enumerate(uploaded_files):
+            try:
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    sheet_display = f"[ملف {file_idx+1}] {sheet}"
+                    all_sheets.append(sheet_display)
+                    sheet_file_map[sheet_display] = (file, sheet)
+            except Exception as e:
+                st.error(f"❌ خطأ في قراءة الملف: {e}")
+        
+        if all_sheets:
+            st.info(f"📋 وجدت {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
+            select_all = st.checkbox("✔️ اختر الجميع", value=True)
+            if select_all:
+                selected_sheets_display = all_sheets
+            else:
+                selected_sheets_display = st.multiselect("اختر المواد للتحليل", all_sheets, default=[])
+            selected_sheets = [(sheet_file_map[s][0], sheet_file_map[s][1]) for s in selected_sheets_display]
+    else:
+        st.info("📤 ارفع ملفات Excel للبدء")
     
-    # Render the chart
-    fig, agg_df = render_subject_category_chart(df)
+    st.markdown("---")
+    st.subheader("🏫 معلومات المدرسة")
+    school_name = st.text_input("اسم المدرسة", placeholder="مدرسة قطر النموذجية")
     
-    # Additional statistics
-    if agg_df is not None:
-        st.markdown("---")
-        st.subheader("📈 إحصائيات إضافية")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            total_subjects = agg_df['subject'].nunique()
-            st.metric("عدد المواد", total_subjects)
-        
-        with col2:
-            platinum_total = agg_df[agg_df['category'] == 'بلاتيني 🥇']['count'].sum()
-            st.metric("إجمالي البلاتيني", platinum_total)
-        
-        with col3:
-            avg_all = agg_df.groupby('subject')['avg_completion'].first().mean()
-            st.metric("المتوسط العام", f"{avg_all:.1f}%")
-        
-        with col4:
-            needs_improvement = agg_df[agg_df['category'] == 'بحاجة لتحسين']['count'].sum()
-            st.metric("بحاجة لتحسين", needs_improvement)
+    st.subheader("✍️ التوقيعات")
+    coordinator_name = st.text_input("منسق المشاريع")
+    academic_deputy = st.text_input("النائب الأكاديمي")
+    admin_deputy = st.text_input("النائب الإداري")
+    principal_name = st.text_input("مدير المدرسة")
+    
+    st.markdown("---")
+    run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary", disabled=not (uploaded_files and selected_sheets))
+    
+    st.markdown("---")
+    st.markdown("<div class='logo-footer-container'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/XLef7tS.png", width=120)
+    st.markdown("</div>", unsafe_allow_html=True)
 
+if not uploaded_files:
+    st.info("📤 الرجاء رفع ملفات Excel من الشريط الجانبي للبدء في التحليل")
+elif run_analysis:
+    with st.spinner("⏳ جاري التحليل، الرجاء الانتظار..."):
+        all_results = []
+        for file, sheet in selected_sheets:
+            results = analyze_excel_file(file, sheet)
+            all_results.extend(results)
+        
+        if all_results:
+            df = pd.DataFrame(all_results)
+            st.session_state.analysis_results = df
+            pivot = create_pivot_table(df)
+            st.session_state.pivot_table = pivot
+            st.success(f"✅ تم تحليل {len(pivot)} طالب من {len(set(df['subject']))} مادة بنجاح")
 
-if __name__ == "__main__":
-    # Run tests
-    print("=" * 60)
-    test_wide_to_long_parser()
-    print("=" * 60)
+if st.session_state.pivot_table is not None:
+    pivot = st.session_state.pivot_table
+    df = st.session_state.analysis_results
     
-    # Run main app
-    main()
+    st.markdown("### 📈 ملخص النتائج")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("👥 إجمالي الطلاب", len(pivot))
+    with col2:
+        st.metric("📚 عدد المواد", df['subject'].nunique())
+    with col3:
+        avg = pivot['المتوسط'].mean() if 'المتوسط' in pivot.columns else 0
+        st.metric("📊 متوسط الإنجاز", f"{avg:.1f}%")
+    with col4:
+        platinum = len(pivot[pivot['الفئة'].str.contains('بلاتينية', na=False)])
+        st.metric("🥇 فئة بلاتينية", platinum)
+    with col5:
+        zero = len(pivot[pivot['المتوسط'] == 0])
+        st.metric("⚠️ بدون إنجاز", zero)
+    
+    st.divider()
+    
+    st.subheader("📋 جدول النتائج التفصيلي")
+    st.dataframe(pivot, use_container_width=True, height=400)
+    
+    st.divider()
+    
+    st.subheader("💾 تحميل النتائج")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            pivot.to_excel(writer, index=False, sheet_name='النتائج')
+        st.download_button(
+            "📥 تحميل Excel",
+            output.getvalue(),
+            f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    
+    with col2:
+        csv_data = pivot.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button(
+            "📥 تحميل CSV",
+            csv_data,
+            f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "text/csv",
+            use_container_width=True
+        )
+    
+    st.divider()
+    
+    render_subject_category_chart(df)
+    
+    st.divider()
+    
+    st.markdown("""
+    <div style='margin-top: 80px; padding: 0; background: transparent;'>
+        <div style='width: 100%; height: 4px; background: linear-gradient(90deg, transparent 0%, #C9A646 20%, #E8D4A0 50%, #C9A646 80%, transparent 100%); margin-bottom: 40px;'></div>
+        
+        <div style='text-align: center; padding: 48px 32px; background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%); border-radius: 12px; box-shadow: 0 8px 24px rgba(138, 21, 56, 0.25); position: relative; overflow: hidden;'>
+            
+            <div style='position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);'></div>
+            
+            <div style='margin-bottom: 24px;'>
+                <img src='https://i.imgur.com/XLef7tS.png' style='width: 100px; height: auto; opacity: 0.95;' alt='Ministry Logo'>
+            </div>
+            
+            <p style='color: #FFFFFF; font-weight: 700; font-size: 16px; margin-bottom: 20px; letter-spacing: 0.03em; line-height: 1.6;'>
+                © 2025 وزارة التربية والتعليم والتعليم العالي
+            </p>
+            <p style='color: #FFFFFF; font-weight: 700; font-size: 16px; margin-bottom: 8px; letter-spacing: 0.02em;'>
+                جميع الحقوق محفوظة
+            </p>
+            
+            <div style='width: 80px; height: 3px; background: #C9A646; margin: 24px auto; border-radius: 2px;'></div>
+            
+            <p style='color: #FFFFFF; font-weight: 700; font-size: 17px; margin-bottom: 16px; letter-spacing: 0.01em;'>
+                مدرسة عثمان بن عفان النموذجية للبنين
+            </p>
+            
+            <p style='color: #FFFFFF; font-weight: 600; font-size: 15px; margin-bottom: 16px; opacity: 0.95;'>
+                منسقة المشاريع الإلكترونية / سحر عثمان
+            </p>
+            
+            <p style='color: #F5F5F5; font-size: 14px; margin: 0; opacity: 0.9;'>
+                📧 للتواصل: <a href='mailto:S.mahgoub0101@education.qa' style='color: #C9A646; font-weight: 600; text-decoration: none; transition: opacity 0.3s; border-bottom: 1px solid #C9A646;'>S.mahgoub0101@education.qa</a>
+            </p>
+            
+            <p style='color: #F5F5F5; font-size: 12px; margin-top: 24px; opacity: 0.8; letter-spacing: 0.02em;'>
+                تطوير وتصميم: قسم التحول الرقمي
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
