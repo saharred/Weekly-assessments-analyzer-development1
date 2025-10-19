@@ -163,26 +163,18 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             return text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ـ", "")
         
         # محاولة استخراج اليوم + الشهر بالعربية
-        # 1) اليوم أولاً: "2 أكتوبر"
-        pattern_day_first = r"(\d{1,2})\s*[-/\s]*\s*([^\d]+)"
-        # 2) الشهر أولاً: "أكتوبر 2" (يسمح بمسافة داخل اسم الشهر)
-        pattern_month_first = r"([^\d]+)\s*[-/\s]*\s*(\d{1,2})"
-
-        match = re.search(pattern_day_first, s) or re.search(pattern_month_first, s)
+        # Pattern: رقم + فاصل اختياري + نص الشهر
+        pattern = r"(\d{1,2})\s*[-/\s]*\s*([^\d\s]+)"
+        match = re.search(pattern, s)
         
         if match:
             try:
-                # حدد ترتيب المجموعات بحسب النمط المطابق
-                if re.fullmatch(pattern_day_first, match.group(0)):
-                    day = int(match.group(1))
-                    month_name = match.group(2).strip()
-                else:
-                    month_name = match.group(1).strip()
-                    day = int(match.group(2))
-
+                day = int(match.group(1))
+                month_name = match.group(2).strip()
+                
                 # البحث في خريطة الأشهر
                 month = None
-
+                
                 # بحث مباشر
                 if month_name in arabic_months:
                     month = arabic_months[month_name]
@@ -193,14 +185,16 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
                         if normalize_hamza(key) == normalized_name:
                             month = val
                             break
-
+                
                 if month:
                     # محاولة إنشاء التاريخ
                     try:
+                        # محاولة 1: استخدام التاريخ مباشرة
                         return date(default_year, month, day)
                     except ValueError:
+                        # محاولة 2: تقليم اليوم إذا كان خارج النطاق
                         try:
-                            safe_day = min(day, 28)
+                            safe_day = min(day, 28)  # أقل عدد أيام مضمون في أي شهر
                             return date(default_year, month, safe_day)
                         except ValueError:
                             pass
@@ -612,11 +606,16 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
     """
     تحليل ورقة Excel واستخراج بيانات الطلاب
     
-    - فلترة بالتاريخ باستخدام صف تاريخ الاستحقاق H3: df.iloc[2, col]
-    - تجاهل أي عمود عنوانه يحتوي على شرطة '-' أو '—' أو '–'
-    - تجاهل الأعمدة الفارغة تماماً
-    - تجاهل الخلايا الفارغة أو التي تحتوي على شرطات
-    - 'M' = مستحق غير منجز (يزيد الإجمالي ويُعد متبقّي)
+    المنطق الجديد - معالجة ذكية للتقييمات:
+    
+    قيم الخلايا:
+    - رقم/علامة/نص → تقييم منجز (يُحسب في الإجمالي + المنجز)
+    - 'M' → تقييم مستحق غير منجز (يُحسب في الإجمالي + المتبقي)
+    - '-' أو '—' أو فارغ → تقييم غير مستحق (لا يُحسب أصلاً)
+    
+    فلتر التاريخ (اختياري):
+    - إذا مفعّل: نفلتر الأعمدة حسب تاريخ H3
+    - إذا معطّل: نأخذ جميع الأعمدة ونعتمد على الخلايا (-, M, قيمة)
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
@@ -627,7 +626,8 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
             due_start, due_end = due_end, due_start
 
         assessment_columns = []
-        skipped_reasons = []  # ✅ تتبع الأعمدة المتجاهلة
+        skipped_reasons = []
+        columns_without_dates = 0
         
         # البحث عن أعمدة التقييمات (بدءاً من H = العمود 7)
         for c in range(7, df.shape[1]):
@@ -637,74 +637,93 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
                 break
             
             t = str(title).strip()
-
-            # 2) تجاهل العناوين التي تحتوي على شرطات (إلا إذا كان أقل من 3 محارف)
-            if any(ch in t for ch in ['-', '—', '–']) and len(t.replace('-','').replace('—','').replace('–','').strip()) < 2:
-                skipped_reasons.append(f"'{t}' - عنوان شرطة")
+            
+            # 2) تجاهل العناوين الفارغة
+            if not t or t in ['-', '—', '–', '_']:
+                skipped_reasons.append(f"عمود {c+1} - عنوان فارغ")
                 continue
 
-            # 3) قراءة تاريخ الاستحقاق من H3 (الصف 2، index=2)
-            due_cell = df.iloc[2, c] if 2 < df.shape[0] and c < df.shape[1] else None
-            due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
-            
-            # 4) فلترة حسب النطاق الزمني
+            # 3) محاولة قراءة تاريخ الاستحقاق من H3 (للفلترة إن وُجدت)
+            due_dt = None
             if filter_active:
+                due_cell = df.iloc[2, c] if 2 < df.shape[0] and c < df.shape[1] else None
+                due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
+                
                 if due_dt is None:
-                    skipped_reasons.append(f"'{t}' - لا يوجد تاريخ صالح في H3")
-                    continue
-                if not in_range(due_dt, due_start, due_end):
-                    skipped_reasons.append(f"'{t}' - خارج النطاق ({due_dt})")
-                    continue
+                    columns_without_dates += 1
+                    # نأخذ العمود حتى لو بدون تاريخ (الاعتماد على الخلايا)
+                else:
+                    # فلترة: نتجاهل الأعمدة خارج النطاق
+                    if not in_range(due_dt, due_start, due_end):
+                        skipped_reasons.append(f"'{t}' - خارج النطاق ({due_dt})")
+                        continue
 
-            # 5) تجاهل الأعمدة الفارغة تماماً (فحص جميع الصفوف)
-            all_dash = True
-            for r in range(4, len(df)):
-                if r >= df.shape[0]:
+            # 4) التحقق من وجود بيانات (ليس كل الخلايا شرطات)
+            has_data = False
+            for r in range(4, min(len(df), 50)):
+                if r >= df.shape[0] or c >= df.shape[1]:
                     break
                 val = df.iloc[r, c]
                 if pd.notna(val):
                     s = str(val).strip().upper()
+                    # إذا وجدنا أي شيء غير شرطة → العمود له بيانات
                     if s not in ['-', '—', '–', '', 'NAN', 'NONE']:
-                        all_dash = False
+                        has_data = True
                         break
             
-            if all_dash:
-                skipped_reasons.append(f"'{t}' - عمود فارغ")
+            if not has_data:
+                skipped_reasons.append(f"'{t}' - عمود فارغ بالكامل")
                 continue
 
-            # إضافة العمود للتحليل
-            assessment_columns.append({'index': c, 'title': t, 'due_date': due_dt})
+            # ✅ إضافة العمود للتحليل
+            assessment_columns.append({
+                'index': c, 
+                'title': t, 
+                'due_date': due_dt,
+                'has_date': due_dt is not None
+            })
 
-        # ✅ عرض معلومات Debug
+        # عرض معلومات تشخيصية
         if not assessment_columns:
             st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على أعمدة تقييم صالحة")
             if skipped_reasons:
                 with st.expander(f"📋 الأعمدة المتجاهلة ({len(skipped_reasons)})"):
-                    for reason in skipped_reasons[:10]:  # أول 10 فقط
+                    for reason in skipped_reasons[:15]:
                         st.text(f"  • {reason}")
             return []
         
-        # ✅ عرض إحصائيات
-        st.success(f"✅ الورقة '{sheet_name}': وُجد {len(assessment_columns)} عمود تقييم")
-        if skipped_reasons:
+        # إحصائيات
+        cols_with_dates = sum(1 for c in assessment_columns if c['has_date'])
+        
+        info_msg = f"✅ الورقة '{sheet_name}': وُجد {len(assessment_columns)} عمود تقييم"
+        if filter_active and columns_without_dates > 0:
+            info_msg += f" ({cols_with_dates} بتاريخ، {columns_without_dates} بدون تاريخ)"
+        
+        st.success(info_msg)
+        
+        if skipped_reasons and len(skipped_reasons) > 0:
             with st.expander(f"ℹ️ تم تجاهل {len(skipped_reasons)} عمود"):
-                for reason in skipped_reasons[:5]:
+                for reason in skipped_reasons[:10]:
                     st.text(f"  • {reason}")
 
-        # معالجة بيانات الطلاب
+        # ============ معالجة بيانات الطلاب ============
         results = []
-        IGNORE = {'-', '—', '–', '', 'NAN', 'NONE'}
         
+        # ✅ المنطق الجديد: الشرطة تعني "غير مستحق"
+        NOT_DUE = {'-', '—', '–', '', 'NAN', 'NONE'}  # غير مستحق = لا نحسبه
+        
+        students_count = 0
         for r in range(4, len(df)):
             student = df.iloc[r, 0]
             if pd.isna(student) or str(student).strip() == "":
                 continue
             
             name = " ".join(str(student).strip().split())
+            students_count += 1
 
-            total = 0
-            done = 0
-            pending = []
+            total = 0        # إجمالي التقييمات المستحقة فقط
+            done = 0         # التقييمات المنجزة
+            pending = []     # التقييمات المستحقة غير المنجزة
             
             for col in assessment_columns:
                 c = col['index']
@@ -716,19 +735,23 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
                 raw = df.iloc[r, c]
                 s = "" if pd.isna(raw) else str(raw).strip().upper()
 
-                # تجاهل الخلايا الفارغة والشرطات
-                if s in IGNORE:
+                # ✅ إذا شرطة أو فارغ → غير مستحق (نتجاهله تماماً)
+                if s in NOT_DUE:
                     continue
                 
-                # معالجة 'M' = مستحق غير منجز
+                # ✅ إذا 'M' → مستحق لكن غير منجز
                 if s == 'M':
                     total += 1
                     pending.append(title)
                     continue
                 
-                # تقييم منجز
+                # ✅ أي قيمة أخرى → تقييم منجز
                 total += 1
                 done += 1
+
+            # تجاهل الطلاب بدون أي تقييمات مستحقة
+            if total == 0:
+                continue
 
             # حساب النسبة المئوية
             pct = (done / total * 100) if total > 0 else 0.0
@@ -743,6 +766,11 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
                 "total_count": int(total),
                 "pending_titles": ", ".join(pending) if pending else "-"
             })
+        
+        if results:
+            st.info(f"📊 تم تحليل {len(results)} طالب (من {students_count} في الورقة)")
+        else:
+            st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على طلاب بتقييمات مستحقة")
         
         return results
 
@@ -1046,20 +1074,32 @@ with st.sidebar:
 
     # فلتر تاريخ الاستحقاق
     st.subheader("⏳ فلترة تاريخ الاستحقاق (من — إلى)")
-    default_start = date.today().replace(day=1)
-    default_end = date.today()
     
-    range_val = st.date_input(
-        "اختر المدى",
-        value=(default_start, default_end),
-        format="YYYY-MM-DD",
-        key="due_range"
+    enable_date_filter = st.checkbox(
+        "تفعيل فلتر التاريخ", 
+        value=False, 
+        help="إذا تم التفعيل، سيتم عرض التقييمات ضمن النطاق الزمني فقط",
+        key="enable_date_filter"
     )
     
-    if isinstance(range_val, (list, tuple)) and len(range_val) >= 2:
-        due_start, due_end = range_val[0], range_val[1]
+    if enable_date_filter:
+        default_start = date.today().replace(day=1)
+        default_end   = date.today()
+        
+        range_val = st.date_input(
+            "اختر المدى",
+            value=(default_start, default_end),
+            format="YYYY-MM-DD",
+            key="due_range"
+        )
+        
+        if isinstance(range_val, (list, tuple)) and len(range_val) >= 2:
+            due_start, due_end = range_val[0], range_val[1]
+        else:
+            due_start, due_end = None, None
     else:
         due_start, due_end = None, None
+        st.info("ℹ️ فلتر التاريخ معطّل - سيتم تحليل جميع الأعمدة")
 
     # شعار المدرسة
     st.subheader("🖼️ شعار المدرسة (اختياري)")
