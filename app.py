@@ -3,10 +3,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt  # احتياطي
 import io
-from datetime import datetime
-from typing import Tuple
+from datetime import datetime, date
+from typing import Tuple, Optional
 import logging
 
 # =========================
@@ -15,8 +14,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+APP_TITLE = "إنجاز -تحليل القييمات الأسبوعية على نظام قطر للتعليم"
+
 st.set_page_config(
-    page_title="محلل التقييمات الأسبوعية",
+    page_title=APP_TITLE,
     page_icon="https://i.imgur.com/XLef7tS.png",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,18 +35,17 @@ st.markdown("""
 /* Header */
 .header-container {
   background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
-  padding: 56px 48px; color: #FFF; text-align: center; margin-bottom: 28px;
-  box-shadow: 0 6px 20px rgba(138, 21, 56, 0.25); border-bottom: 4px solid #C9A646;
-  position: relative;
+  padding: 48px 40px; color: #FFF; text-align: center; margin-bottom: 24px;
+  box-shadow: 0 6px 20px rgba(138, 21, 56, 0.25); border-bottom: 4px solid #C9A646; position: relative;
 }
 .header-container::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
   background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
 }
-.header-container h1 { margin: 0 0 12px 0; font-size: 40px; font-weight: 800; }
-.header-container .subtitle { font-size: 18px; font-weight: 700; margin: 0 0 6px 0; }
-.header-container .accent-line { font-size: 14px; color: #C9A646; font-weight: 700; margin: 0 0 8px 0; }
-.header-container .description { font-size: 14px; opacity: 0.95; margin: 0; }
+.header-container h1 { margin: 0 0 8px 0; font-size: 34px; font-weight: 800; }
+.header-container .subtitle { font-size: 16px; font-weight: 700; margin: 0 0 6px 0; }
+.header-container .accent-line { font-size: 13px; color: #C9A646; font-weight: 700; margin: 0 0 8px 0; }
+.header-container .description { font-size: 13px; opacity: 0.95; margin: 0; }
 
 /* Sidebar */
 [data-testid="stSidebar"] {
@@ -58,38 +58,53 @@ st.markdown("""
 /* Cards/Metrics */
 .metric-box {
   background: #FFF; border: 2px solid #E8E8E8; border-right: 5px solid #8A1538;
-  padding: 20px; border-radius: 10px; text-align: center;
+  padding: 18px; border-radius: 10px; text-align: center;
   box-shadow: 0 3px 12px rgba(0,0,0,.08); transition: all .3s ease;
 }
 .metric-box:hover { border-right-color: #C9A646; transform: translateY(-2px); }
-.metric-value { font-size: 36px; font-weight: 800; color: #8A1538; }
+.metric-value { font-size: 32px; font-weight: 800; color: #8A1538; }
 .metric-label { font-size: 12px; font-weight: 700; color: #4A4A4A; letter-spacing: .06em; }
 
 /* Chart container */
 .chart-container {
   background: #FFF; border: 2px solid #E5E7EB; border-right: 5px solid #8A1538;
-  border-radius: 12px; padding: 20px; margin: 14px 0; box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  border-radius: 12px; padding: 18px; margin: 12px 0; box-shadow: 0 2px 8px rgba(0,0,0,.08);
 }
-.chart-title { font-size: 22px; font-weight: 800; color: #8A1538; text-align: center; margin-bottom: 12px; }
+.chart-title { font-size: 20px; font-weight: 800; color: #8A1538; text-align: center; margin-bottom: 10px; }
 
 /* Tables */
 [data-testid="stDataFrame"] {
   border: 2px solid #E8E8E8; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.06);
 }
 
-/* Footer */
+/* Footer — نسخة مضغوطة */
 .footer {
-  margin-top: 48px; background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
-  color: #FFF; border-radius: 12px; padding: 36px 16px; text-align: center;
-  box-shadow: 0 8px 24px rgba(138,21,56,.25); position: relative; overflow: hidden;
+  margin-top: 22px;
+  background: linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
+  color: #FFF;
+  border-radius: 10px;
+  padding: 12px 10px;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(138,21,56,.20);
+  position: relative;
+  overflow: hidden;
 }
 .footer .line {
-  width: 100%; height: 4px; background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
   position: absolute; top: 0; left: 0;
 }
-.footer .brand { font-weight: 800; font-size: 18px; margin: 6px 0; }
-.footer .rights { font-weight: 800; font-size: 16px; margin: 4px 0; }
-.footer a { color: #C9A646; font-weight: 700; text-decoration: none; border-bottom: 1px solid #C9A646; }
+.footer img.logo {
+  width: 60px;
+  height: auto; opacity: .95;
+  margin: 6px 0 8px;
+}
+.footer .school { font-weight: 800; font-size: 15px; margin: 2px 0 4px; }
+.footer .rights { font-weight: 700; font-size: 12px; margin: 0 0 4px; opacity: .95; }
+.footer .contact { font-size: 12px; margin-top: 2px; }
+.footer a { color: #E8D4A0; font-weight: 700; text-decoration: none; border-bottom: 1px solid #C9A646; }
+.footer .credit { margin-top: 6px; font-size: 11px; opacity: .85; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,56 +142,77 @@ def parse_sheet_name(sheet_name: str) -> Tuple[str, str, str]:
     except Exception:
         return sheet_name, "", ""
 
+def _parse_excel_date(x) -> Optional[date]:
+    """يحاول تحويل الخلية إلى تاريخ (date)."""
+    try:
+        d = pd.to_datetime(x)
+        if pd.isna(d): return None
+        if 2000 <= d.year <= 2100:
+            return d.date()
+        return None
+    except Exception:
+        return None
+
 @st.cache_data
-def analyze_excel_file(file, sheet_name):
+def analyze_excel_file(file, sheet_name, due_start: Optional[date] = None, due_end: Optional[date] = None):
     """
-    - total_count: يحسب فقط الخانات المستحقة (يستثني '-', '—', 'I', 'AB', 'X')
-    - completed_count: كل قيمة ليست من مجموعة الاستثناء وغير 'M' تعتبر مُنجزة (حتى 0)
-    - solve_pct = completed / total * 100
+    - يدعم فلتر تاريخ الاستحقاق (due_start/due_end). عند تفعيله:
+      * تُحتسب التقييمات التي تملك تاريخًا ويقع بين التاريخين (شاملًا).
+      * التقييمات التي بلا تاريخ تُستبعد.
+    - total_count: يحسب فقط الخانات المستحقة (يستثني '-', '—', 'I', 'AB', 'X') مع مراعاة الفلتر.
+    - completed_count: كل قيمة ليست من مجموعة الاستثناء وغير 'M' تعتبر مُنجزة (حتى 0).
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
         subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
 
-        # قراءة تواريخ الاستحقاق من H3 (index=2)
-        due_dates = []
-        try:
-            for col_idx in range(7, min(df.shape[1], 50)):
-                cell_value = df.iloc[2, col_idx]
-                if pd.notna(cell_value):
-                    try:
-                        d = pd.to_datetime(cell_value)
-                        if 2000 <= d.year <= 2100:
-                            due_dates.append(d.date())
-                    except Exception:
-                        continue
-        except Exception:
-            pass
+        filter_active = (due_start is not None and due_end is not None)
+        if filter_active and due_start > due_end:
+            due_start, due_end = due_end, due_start  # تبادل إن دخلت عكسيًا
 
-        # تحديد أعمدة التقييم
+        # تحديد أعمدة التقييم + تاريخ الاستحقاق لكل عمود
         assessment_columns = []
-        for col_idx in range(7, df.shape[1]):
+        for col_idx in range(7, df.shape[1]):  # من H1
             title = df.iloc[0, col_idx] if col_idx < df.shape[1] else None
-            if pd.isna(title): break
+            if pd.isna(title):  # توقف عند أول عمود فارغ في العناوين
+                break
+
+            # تحقق أن العمود ليس كله "-" في أول ~16 صفًا
             all_dash = True
             for row_idx in range(4, min(len(df), 20)):
                 cell_value = df.iloc[row_idx, col_idx]
-                if pd.notna(cell_value):
-                    if str(cell_value).strip() not in ['-', '—', '']:
-                        all_dash = False; break
-            if not all_dash:
-                assessment_columns.append({'index': col_idx, 'title': str(title).strip()})
+                if pd.notna(cell_value) and str(cell_value).strip() not in ['-', '—', '']:
+                    all_dash = False
+                    break
+            if all_dash:
+                continue
+
+            # تاريخ الاستحقاق من الصف H3 (index=2)
+            due_dt = None
+            try:
+                due_dt = _parse_excel_date(df.iloc[2, col_idx])
+            except Exception:
+                pass
+
+            # تطبيق فلتر التاريخ إن فُعّل
+            if filter_active:
+                if (due_dt is None) or not (due_start <= due_dt <= due_end):
+                    continue  # استبعد العمود خارج المدى أو بلا تاريخ
+
+            assessment_columns.append({'index': col_idx, 'title': str(title).strip(), 'due_date': due_dt})
 
         if not assessment_columns:
-            st.warning(f"⚠️ لم يتم العثور على تقييمات في ورقة: {sheet_name}")
+            st.warning(f"⚠️ لم يتم العثور على تقييمات مطابقة للفلتر في ورقة: {sheet_name}")
             return []
 
         results = []
         IGNORE = {'-', '—', '', 'I', 'AB', 'X', 'NAN', 'NONE'}
 
+        # الطلاب يبدأون من الصف الخامس غالبًا (index=4)
         for idx in range(4, len(df)):
             student_name = df.iloc[idx, 0]
-            if pd.isna(student_name) or str(student_name).strip() == "": continue
+            if pd.isna(student_name) or str(student_name).strip() == "":
+                continue
             student_name_clean = " ".join(str(student_name).strip().split())
 
             completed_count = 0
@@ -184,21 +220,26 @@ def analyze_excel_file(file, sheet_name):
             pending_titles = []
 
             for col_info in assessment_columns:
-                col_idx = col_info['index']; title = col_info['title']
-                if col_idx >= df.shape[1]: continue
+                col_idx = col_info['index']
+                title = col_info['title']
+                if col_idx >= df.shape[1]:
+                    continue
 
                 cell_value = df.iloc[idx, col_idx]
                 cell_str = ("" if pd.isna(cell_value) else str(cell_value)).strip().upper()
 
+                # 1) غير مستحق/تجاهل → لا يدخل الإجمالي
                 if cell_str in IGNORE:
                     continue
+
+                # 2) لم يُسلّم → يدخل الإجمالي فقط
                 if cell_str == 'M':
                     total_count += 1
                     pending_titles.append(title)
                     continue
 
+                # 3) أي قيمة أخرى → الطالب سلّم (حتى لو صفر)
                 total_count += 1
-                # أي قيمة أخرى (رقم/نص) → مُنجز
                 completed_count += 1
 
             solve_pct = (completed_count / total_count * 100) if total_count > 0 else 0.0
@@ -212,7 +253,6 @@ def analyze_excel_file(file, sheet_name):
                 "completed_count": int(completed_count),
                 "total_count": int(total_count),
                 "pending_titles": ", ".join(pending_titles) if pending_titles else "-",
-                "due_dates": due_dates
             })
 
         logger.info(f"✅ تم تحليل {len(results)} طالب من ورقة {sheet_name}")
@@ -225,6 +265,7 @@ def analyze_excel_file(file, sheet_name):
 
 @st.cache_data
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
+    """يبني Pivot مجمّع لكل طالب عبر المواد مع متوسط وتصنيف موحّد."""
     try:
         if df.empty:
             st.warning("⚠️ لا توجد بيانات للتحليل")
@@ -371,7 +412,7 @@ def chart_stacked_by_subject(agg_df: pd.DataFrame, mode: str = 'percent') -> go.
         barmode='stack', height=max(420, len(subjects)*60),
         margin=dict(l=220, r=40, t=70, b=40),
         plot_bgcolor='white', paper_bgcolor='white', font=dict(family='Cairo'),
-        legend=dict(title="الفئة", orientation='h', y=1.02, x=0.5, xanchor='center', font=dict(family='Cairo'))
+        legend=dict(title="الفئة", orientation='h', y=1.02, x=0.5, xanchor='center')
     )
     return fig
 
@@ -415,10 +456,10 @@ def chart_overall_gauge(pivot: pd.DataFrame) -> go.Figure:
 # =========================
 # واجهة الرأس
 # =========================
-st.markdown("""
+st.markdown(f"""
 <div class='header-container'>
-  <div style='display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom: 14px;'>
-    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <div style='display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom: 10px;'>
+    <svg width="44" height="44" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="4" y="4" width="40" height="40" rx="4" fill="#C9A646" opacity="0.15"/>
       <path d="M12 32V24M18 32V20M24 32V16M30 32V22M36 32V18" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="12" cy="24" r="2.5" fill="#C9A646"/>
@@ -428,11 +469,11 @@ st.markdown("""
       <circle cx="36" cy="18" r="2.5" fill="#C9A646"/>
       <path d="M12 24L18 20L24 16L30 22L36 18" stroke="#C9A646" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    <h1>نظام قطر للتعليم - محلل التقييمات الأسبوعية</h1>
+    <h1>{APP_TITLE}</h1>
   </div>
-  <p class='subtitle'>وزارة التربية والتعليم والتعليم العالي</p>
-  <p class='accent-line'>ضمان تنمية رقمية مستدامة</p>
-  <p class='description'>نظام تحليل شامل وموثوق لنتائج الطلاب</p>
+  <p class='subtitle'>لوحة مهنية لقياس التقدم وتحليل النتائج</p>
+  <p class='accent-line'>هوية إنجاز • دعم العربية الكامل</p>
+  <p class='description'>اختر الملفات وفعّل فلتر التاريخ حسب الحاجة لنتائج أدق</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -454,6 +495,11 @@ with st.sidebar:
 
     st.subheader("📁 تحميل الملفات")
     uploaded_files = st.file_uploader("اختر ملفات Excel", type=["xlsx", "xls"], accept_multiple_files=True)
+
+    st.subheader("⏳ فلتر تاريخ الاستحقاق")
+    enable_due_filter = st.checkbox("تفعيل الفلتر", value=False, help="عند التفعيل، لن تُحتسب الأعمدة بلا تاريخ.")
+    due_start = st.date_input("من تاريخ", value=None) if enable_due_filter else None
+    due_end = st.date_input("إلى تاريخ", value=None) if enable_due_filter else None
 
     selected_sheets = []
     if uploaded_files:
@@ -501,7 +547,8 @@ elif run_analysis:
     with st.spinner("⏳ جاري التحليل..."):
         all_results = []
         for file, sheet in selected_sheets:
-            all_results.extend(analyze_excel_file(file, sheet))
+            all_results.extend(analyze_excel_file(file, sheet, due_start, due_end) if enable_due_filter
+                               else analyze_excel_file(file, sheet, None, None))
 
         if all_results:
             df = pd.DataFrame(all_results)
@@ -579,24 +626,6 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
         agg_df = aggregate_by_subject(normalized)
         fig = chart_stacked_by_subject(agg_df, mode=mode)
         st.plotly_chart(fig, use_container_width=True)
-        dl1, dl2 = st.columns(2)
-        with dl1:
-            st.download_button(
-                "📥 تحميل البيانات (CSV)",
-                agg_df.to_csv(index=False, encoding='utf-8-sig'),
-                f"subject_categories_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                "text/csv", use_container_width=True
-            )
-        with dl2:
-            try:
-                png_bytes = fig.to_image(format="png", width=1400, height=900, scale=2)
-                st.download_button(
-                    "📥 تحميل الرسم البياني (PNG)",
-                    png_bytes, f"chart_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    "image/png", use_container_width=True
-                )
-            except Exception:
-                st.info("💡 لتحميل الصورة PNG، ثبّت: pip install kaleido")
     except Exception as e:
         st.error(f"خطأ في بناء الرسم: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -604,11 +633,10 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
     st.divider()
 
     # =========================
-    # 📑 التقارير الفردية لكل طالب
+    # 📑 التقارير الفردية لكل طالب (مع اسم المدرسة والتوقيعات)
     # =========================
     st.subheader("📑 التقارير الفردية لكل طالب")
 
-    # قائمة الطلاب من Pivot (أكثر اتساقًا)
     student_list = pivot['الطالب'].dropna().unique().tolist()
     student_list.sort(key=lambda x: str(x))
 
@@ -621,9 +649,30 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
         with col_btn:
             as_csv = st.checkbox("تضمين CSV مع Excel", value=True)
 
-        # بناء تقرير الطالب من df الخام (أدق)
+        # هيدر التقرير الفردي
+        st.markdown(
+            f"""
+            <div style="background:#F8F8F8;border:2px solid #E5E7EB;border-right:6px solid #8A1538;
+                        border-radius:12px;padding:12px 14px;margin:8px 0;">
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div style="font-weight:800;color:#8A1538;">🏫 اسم المدرسة:</div>
+                    <div style="font-weight:700;">{(school_name or '—')}</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                    <div style="font-weight:800;color:#8A1538;">👤 الطالب:</div>
+                    <div style="font-weight:700;">{selected_student}</div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                    <div style="font-weight:800;color:#8A1538;">📅 تاريخ الإصدار:</div>
+                    <div style="font-weight:700;">{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # بناء تقرير الطالب من df الخام
         student_df = df[df['student_name'].str.strip().eq(str(selected_student).strip())].copy()
-        # جدول مُنسّق للعرض
         student_table = student_df[['subject', 'total_count', 'completed_count', 'solve_pct', 'pending_titles']].copy()
         student_table = student_table.rename(columns={
             'subject':'المادة', 'total_count':'إجمالي', 'completed_count':'منجز',
@@ -633,13 +682,13 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
 
         # ملخص أعلى التقرير
         overall_avg = float(student_table['النسبة (%)'].mean()) if not student_table.empty else 0.0
-        def cat(pct):
-            if pct >= 90: return "بلاتيني 🥇"
-            if pct >= 80: return "ذهبي 🥈"
-            if pct >= 70: return "فضي 🥉"
-            if pct >= 60: return "برونزي"
+        def _cat(p):
+            if p >= 90: return "بلاتيني 🥇"
+            if p >= 80: return "ذهبي 🥈"
+            if p >= 70: return "فضي 🥉"
+            if p >= 60: return "برونزي"
             return "بحاجة لتحسين"
-        overall_cat = cat(overall_avg)
+        overall_cat = _cat(overall_avg)
 
         box1, box2, box3 = st.columns(3)
         with box1:
@@ -664,7 +713,6 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
         # --- رسوم تقرير الطالب ---
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.markdown('<h2 class="chart-title">🍩 نسب الإنجاز حسب المادة</h2>', unsafe_allow_html=True)
-        # Doughnut متعدد الشرائح = إجمالي إنجاز الطالب موزّع على المواد كقِيم
         labels = student_table['المادة'].tolist()
         values = student_table['النسبة (%)'].tolist()
         donut = go.Figure(data=[go.Pie(
@@ -698,18 +746,42 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
         st.plotly_chart(bar, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # تحميل تقرير الطالب (Excel + صور إن توفرت)
-        exp1 = st.expander("💾 تنزيل تقرير الطالب")
+        # ---------- تحميل تقرير الطالب (Excel + CSV + PNG) مع اسم المدرسة والتوقيعات ----------
+        exp1 = st.expander("💾 تنزيل تقرير الطالب (يتضمن اسم المدرسة والتوقيعات)")
         with exp1:
             excel_buf = io.BytesIO()
             with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
-                # معلومات عامة
+                # معلومات عامة + المدرسة
                 info_df = pd.DataFrame({
-                    'الحقل': ['الطالب','متوسط الإنجاز','الفئة','تاريخ التقرير'],
-                    'القيمة': [selected_student, f"{overall_avg:.1f}%", overall_cat, datetime.now().strftime("%Y-%m-%d %H:%M")]
+                    'الحقل': [
+                        'اسم المدرسة', 'الطالب', 'متوسط الإنجاز', 'الفئة', 'تاريخ التقرير'
+                    ],
+                    'القيمة': [
+                        (school_name or '—'),
+                        selected_student,
+                        f"{overall_avg:.1f}%",
+                        overall_cat,
+                        datetime.now().strftime("%Y-%m-%d %H:%M")
+                    ]
                 })
                 info_df.to_excel(writer, index=False, sheet_name='معلومات')
+
+                # تفاصيل المواد
                 student_table.to_excel(writer, index=False, sheet_name='تفاصيل المواد')
+
+                # صفحة التوقيعات
+                signatures_df = pd.DataFrame({
+                    'المنصب': ['منسق/ة المشاريع', 'النائب الأكاديمي', 'النائب الإداري', 'مدير/ة المدرسة'],
+                    'الاسم': [
+                        (coordinator_name or '—'),
+                        (academic_deputy or '—'),
+                        (admin_deputy or '—'),
+                        (principal_name or '—')
+                    ],
+                    'التوقيع': ['__________________']*4,
+                    'التاريخ': [datetime.now().strftime("%Y-%m-%d")]*4
+                })
+                signatures_df.to_excel(writer, index=False, sheet_name='التوقيعات')
 
             st.download_button(
                 "📥 تحميل تقرير الطالب (Excel)",
@@ -727,7 +799,7 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
                     "text/csv", use_container_width=True
                 )
 
-            # محاولة تصدير الرسوم PNG (يتطلب kaleido)
+            # تصدير الرسوم PNG (يتطلب kaleido)
             try:
                 donut_png = donut.to_image(format="png", width=1200, height=800, scale=2)
                 bar_png = bar.to_image(format="png", width=1200, height=800, scale=2)
@@ -745,20 +817,17 @@ if st.session_state.pivot_table is not None and not st.session_state.pivot_table
                 st.info("💡 لتحميل صور الرسوم كـ PNG، ثبّت الحزمة: pip install kaleido")
 
 # =========================
-# Footer
+# Footer (مصغّر)
 # =========================
 st.markdown(f"""
 <div class="footer">
   <div class="line"></div>
-  <div style='margin-bottom: 16px;'>
-    <img src='https://i.imgur.com/XLef7tS.png' style='width: 88px; height: auto; opacity: 0.95;' alt='Ministry Logo'>
+  <img class="logo" src="https://i.imgur.com/XLef7tS.png" alt="Logo">
+  <div class="school">مدرسة عثمان بن عفان النموذجية للبنين</div>
+  <div class="rights">© {datetime.now().year} جميع الحقوق محفوظة</div>
+  <div class="contact">للتواصل:
+    <a href="mailto:S.mahgoub0101@education.qa">S.mahgoub0101@education.qa</a>
   </div>
-  <div class="brand">© {datetime.now().year} وزارة التربية والتعليم والتعليم العالي — جميع الحقوق محفوظة</div>
-  <div class="rights">مدرسة عثمان بن عفان النموذجية للبنين</div>
-  <div style="font-weight:700; margin-top:6px;">منسقة المشاريع الإلكترونية / سحر عثمان</div>
-  <div style="margin-top:8px;">
-    للتواصل: <a href="mailto:S.mahgoub0101@education.qa">S.mahgoub0101@education.qa</a>
-  </div>
-  <div style="margin-top:10px; font-size:12px; opacity:.9;">تطوير وتصميم: قسم التحول الرقمي</div>
+  <div class="credit">مشروع  التحول الرقمي الذكي</div>
 </div>
 """, unsafe_allow_html=True)
