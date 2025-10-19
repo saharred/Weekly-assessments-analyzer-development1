@@ -8,8 +8,7 @@ from datetime import datetime
 
 # Page config
 st.set_page_config(
-    page_title=" -لضمان تنمية رقمية مستدامة 
-    محلل التقييمات الأسبوعية",
+    page_title="محلل التقييمات الأسبوعية",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -553,8 +552,13 @@ def generate_student_html_report(student_row, school_name="", coordinator="", ac
 
 st.markdown(f"""
 <div class="header-container">
+    <div style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 15px;">
+        {MINISTRY_LOGO_SVG}
+    </div>
     <h1>📊 محلل التقييمات الأسبوعية</h1>
-    <p>نظام تحليل شامل وموثوق لنتائج الطلاب</p>
+    <p style="font-size: 14px; margin: 10px 0;">وزارة التربية والتعليم والتعليم العالي</p>
+    <p style="font-size: 13px; color: #D4A574; font-weight: 600; margin: 5px 0;">لضمان تنمية رقمية مستدامة</p>
+    <p style="font-size: 12px; opacity: 0.9;">نظام تحليل شامل وموثوق لنتائج الطلاب</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -567,14 +571,15 @@ if "pivot_table" not in st.session_state:
 with st.sidebar:
     st.markdown(f"<div style='text-align: center; margin: 20px 0;'>{MINISTRY_LOGO_SVG}</div>", unsafe_allow_html=True)
     st.markdown("---")
-    st.header("⚙️ الإعدادات")
+    st.header("⚙️ الإعدادات والتحليل")
     
     # File Upload
     st.subheader("📁 تحميل الملفات")
     uploaded_files = st.file_uploader(
         "اختر ملفات Excel",
         type=["xlsx", "xls"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        help="📌 يدعم تحليل عدة ملفات في آن واحد"
     )
     
     if uploaded_files:
@@ -590,8 +595,20 @@ with st.sidebar:
                     sheet_file_map[sheet_display] = (file, sheet)
             
             if all_sheets:
-                st.info(f"📊 {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
-                selected_sheets_display = st.multiselect("اختر المواد", all_sheets, default=all_sheets)
+                st.info(f"📊 وجدت {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
+                
+                # خيار اختيار الأوراق
+                select_all = st.checkbox("✅ اختر جميع الأوراق", value=True)
+                
+                if select_all:
+                    selected_sheets_display = all_sheets
+                else:
+                    selected_sheets_display = st.multiselect(
+                        "🔍 فلتر الأوراق: اختر الأوراق المراد تحليلها",
+                        all_sheets,
+                        default=[]
+                    )
+                
                 selected_sheets = [(sheet_file_map[s][0], sheet_file_map[s][1]) for s in selected_sheets_display]
             else:
                 selected_sheets = []
@@ -601,6 +618,7 @@ with st.sidebar:
     else:
         st.info("💡 ارفع ملفات Excel للبدء")
         selected_sheets = []
+        select_all = False
     
     st.markdown("---")
     st.subheader("🏫 معلومات المدرسة")
