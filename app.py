@@ -636,9 +636,19 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
             if t in ['-', '—', '–'] or re.fullmatch(r"[-—–]+", t):
                 continue
 
-            # 3) قراءة تاريخ الاستحقاق من H3 (الصف 2، index=2)
-            due_cell = df.iloc[2, c] if c < df.shape[1] else None
-            due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
+            # 3) قراءة تاريخ الاستحقاق مع محاولات متعددة
+            #    المحاولة الأساسية من الصف 3 (index=2)، ثم محاولات بديلة حوله
+            due_dt = None
+            candidate_rows = [2, 1, 3, 4, 5]
+            for rr in candidate_rows:
+                if rr < df.shape[0]:
+                    due_cell = df.iloc[rr, c]
+                    due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
+                    if due_dt is not None:
+                        break
+            #    محاولة أخيرة: استنباط التاريخ من نص عنوان العمود نفسه في حال احتوى تاريخاً
+            if due_dt is None:
+                due_dt = parse_due_date_cell(t, default_year=date.today().year)
             
             # 4) فلترة حسب النطاق الزمني
             if filter_active and not in_range(due_dt, due_start, due_end):
@@ -646,15 +656,17 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
 
             # 5) تجاهل الأعمدة الفارغة تماماً (فحص جميع الصفوف)
             all_dash = True
-            for r in range(4, len(df)):  # ✅ إصلاح: فحص كل الصفوف
+            IGNORE = {'-', '—', '–', '', 'NAN', 'NONE', 'I', 'AB', 'X'}
+            for r in range(4, len(df)):
                 if r >= df.shape[0]:
                     break
                 val = df.iloc[r, c]
-                if pd.notna(val):
-                    s = str(val).strip().upper()
-                    if s not in ['-', '—', '–', '', 'NAN', 'NONE']:
-                        all_dash = False
-                        break
+                if pd.isna(val):
+                    continue
+                s = str(val).strip().upper()
+                if s not in IGNORE:
+                    all_dash = False
+                    break
             
             if all_dash:
                 continue
