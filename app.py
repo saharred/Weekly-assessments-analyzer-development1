@@ -471,9 +471,9 @@ with st.sidebar:
     uploaded_files = st.file_uploader("اختر ملفات Excel", type=["xlsx", "xls"], accept_multiple_files=True)
 
     selected_sheets: List[tuple] = []
+    all_sheets = []
+    sheet_file_map = {}
     if uploaded_files:
-        all_sheets = []
-        sheet_file_map = {}
         for file_idx, file in enumerate(uploaded_files):
             try:
                 xls = pd.ExcelFile(file)
@@ -492,6 +492,8 @@ with st.sidebar:
             else:
                 chosen = st.multiselect("اختر الأوراق للتحليل", all_sheets, default=all_sheets[:1])
             selected_sheets = [sheet_file_map[c] for c in chosen]
+
+    # خزّن الاختيار (حتى لو فاضي الآن)
     st.session_state.selected_sheets = selected_sheets
 
     # فلتر تاريخ الاستحقاق
@@ -519,22 +521,42 @@ with st.sidebar:
     principal_name   = st.text_input("مدير/ة المدرسة")
 
     st.markdown("---")
+    # ✅ الزر مفعّل طالما فيه ملفات — حتى لو الأوراق غير محددة الآن
     run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary",
-                             disabled=not (uploaded_files and st.session_state.selected_sheets))
+                             disabled=not uploaded_files)
 
 # تحليل
 if not uploaded_files:
     st.info("📤 من الشريط الجانبي ارفع ملفات Excel للبدء في التحليل")
 elif run_analysis:
-    with st.spinner("⏳ جاري التحليل..."):
-        rows=[]
-        for file, sheet in st.session_state.selected_sheets:
-            rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
-        if rows:
-            df = pd.DataFrame(rows)
-            st.session_state.analysis_results = df
-            st.session_state.pivot_table = create_pivot_table(df)
-            st.success(f"✅ تم تحليل {len(st.session_state.pivot_table)} طالب عبر {df['subject'].nunique()} مادة")
+    # ✅ لو ما اختيرت أوراق، نحلّي كلها تلقائيًا
+    sheets_to_use = st.session_state.selected_sheets
+    if not sheets_to_use:
+        # إعادة بناء كل الأوراق احتياطيًا
+        tmp = []
+        for file in uploaded_files:
+            try:
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    tmp.append((file, sheet))
+            except Exception as e:
+                st.error(f"❌ خطأ في قراءة الملف: {e}")
+        sheets_to_use = tmp
+
+    if not sheets_to_use:
+        st.warning("⚠️ لم يتم العثور على أوراق داخل الملفات المرفوعة.")
+    else:
+        with st.spinner("⏳ جاري التحليل..."):
+            rows=[]
+            for file, sheet in sheets_to_use:
+                rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
+            if rows:
+                df = pd.DataFrame(rows)
+                st.session_state.analysis_results = df
+                st.session_state.pivot_table = create_pivot_table(df)
+                st.success(f"✅ تم تحليل {len(st.session_state.pivot_table)} طالب عبر {df['subject'].nunique()} مادة")
+            else:
+                st.warning("⚠️ لم يتم استخراج بيانات من الأوراق المحددة. تأكد من تنسيق الجداول وتواريخ الاستحقاق.")
 
 # عرض
 pivot = st.session_state.pivot_table
