@@ -1036,37 +1036,112 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out['category'] = out['percent'].apply(cat)
     return out
 
-def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
-    """تجميع البيانات حسب المادة"""
-    rows = []
+def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
+    """رسم بياني مكدس حسب المادة"""
+    fig = go.Figure()
+    colors = [CATEGORY_COLORS[c] for c in CATEGORY_ORDER]
     
-    for s in df['subject'].dropna().unique():
-        sub = df[df['subject'] == s]
-        n = len(sub)
-        # ✅ إصلاح: معالجة NaN بشكل صحيح
-        avg = sub['percent'].mean() if n > 0 and sub['percent'].notna().any() else 0.0
+    for i, cat in enumerate(CATEGORY_ORDER):
+        d = agg_df[agg_df['category'] == cat]
+        vals = d['percent_share'] if mode == 'percent' else d['count']
+        text = [(f"{v:.1f}%" if mode == 'percent' else str(int(v))) if v > 0 else "" for v in vals]
+        hover = "<b>%{y}</b><br>الفئة: " + cat + "<br>" + (
+            "النسبة: %{x:.1f}%<extra></extra>" if mode == 'percent' else "العدد: %{x}<extra></extra>"
+        )
         
-        for cat in CATEGORY_ORDER:
-            c = (sub['category'] == cat).sum()
-            pct = (c / n * 100) if n > 0 else 0.0
-            
-            rows.append({
-                'subject': s,
-                'category': cat,
-                'count': int(c),
-                'percent_share': round(pct, 1),
-                'avg_completion': round(avg, 1)
-            })
+        fig.add_trace(go.Bar(
+            name=cat,
+            x=vals,
+            y=d['subject'],
+            orientation='h',
+            marker=dict(color=colors[i], line=dict(color='white', width=1)),
+            text=text,
+            textposition='inside',
+            textfont=dict(size=11, family='Cairo'),
+            hovertemplate=hover
+        ))
     
-    agg = pd.DataFrame(rows)
-    if agg.empty:
-        return agg
+    fig.update_layout(
+        title=dict(
+            text="توزيع الفئات حسب المادة",
+            font=dict(size=20, family='Cairo', color='#8A1538'),
+            x=0.5
+        ),
+        xaxis=dict(
+            title="النسبة المئوية (%)" if mode == 'percent' else "عدد الطلاب",
+            tickfont=dict(size=12, family='Cairo'),
+            gridcolor='#E5E7EB',
+            range=[0, 100] if mode == 'percent' else None
+        ),
+        yaxis=dict(
+            title="المادة",
+            tickfont=dict(size=12, family='Cairo'),
+            autorange='reversed'
+        ),
+        barmode='stack',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family='Cairo')
+    )
     
-    # ترتيب المواد حسب متوسط الإنجاز
-    order = agg.groupby('subject')['avg_completion'].first().sort_values(ascending=False).index.tolist()
-    agg['subject'] = pd.Categorical(agg['subject'], categories=order, ordered=True)
+    return fig
+
+def chart_overall_donut(pivot: pd.DataFrame) -> go.Figure:
+    """رسم دائري للتوزيع العام"""
+    if 'الفئة' not in pivot.columns or pivot.empty:
+        return go.Figure()
     
-    return agg.sort_values('subject')
+    counts = pivot['الفئة'].value_counts().reindex(CATEGORY_ORDER, fill_value=0)
+    
+    fig = go.Figure([go.Pie(
+        labels=counts.index,
+        values=counts.values,
+        hole=0.55,
+        marker=dict(colors=[CATEGORY_COLORS[k] for k in counts.index]),
+        textinfo='label+value',
+        hovertemplate="%{label}: %{value} طالب<extra></extra>"
+    )])
+    
+    fig.update_layout(
+        title=dict(
+            text="توزيع عام للفئات",
+            font=dict(size=20, family='Cairo', color='#8A1538'),
+            x=0.5
+        ),
+        showlegend=False,
+        font=dict(family='Cairo')
+    )
+    
+    return fig
+
+def chart_overall_gauge(pivot: pd.DataFrame) -> go.Figure:
+    """مؤشر متوسط الإنجاز"""
+    avg = 0.0
+    if 'المتوسط' in pivot.columns and not pivot.empty:
+        avg = float(pivot['المتوسط'].mean())
+        if pd.isna(avg):
+            avg = 0.0
+    
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=avg,
+        number={'suffix': "%", 'font': {'family': 'Cairo'}},
+        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': '#8A1538'}}
+    ))
+    
+    fig.update_layout(
+        title=dict(
+            text="متوسط الإنجاز العام",
+            font=dict(size=20, family='Cairo', color='#8A1538'),
+            x=0.5
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font=dict(family='Cairo'),
+        height=320
+    )
+    
+    return fig
     """تجميع البيانات حسب المادة"""
     rows = []
     
@@ -1222,6 +1297,109 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
+    selected_sheets = []
+    all_sheets = []
+    sheet_file_map = {}
+    
+    if uploaded_files:
+        for file_idx, file in enumerate(uploaded_files):
+            try:
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    label = f"[ملف {file_idx+1}] {sheet}"
+                    all_sheets.append(label)
+                    sheet_file_map[label] = (file, sheet)
+            except Exception as e:
+                st.error(f"❌ خطأ في قراءة الملف: {e}")
+
+        if all_sheets:
+            st.info(f"📋 وُجدت {len(all_sheets)} ورقة في {len(uploaded_files)} ملف")
+            select_all = st.checkbox("✔️ اختر الجميع", value=True, key="select_all_sheets")
+            
+            if select_all:
+                chosen = all_sheets
+            else:
+                chosen = st.multiselect(
+                    "اختر الأوراق للتحليل",
+                    all_sheets,
+                    default=all_sheets[:1] if all_sheets else []
+                )
+            
+            selected_sheets = [sheet_file_map[c] for c in chosen]
+
+    st.session_state.selected_sheets = selected_sheets
+
+    # فلتر تاريخ الاستحقاق
+    st.subheader("⏳ فلترة الأعمدة حسب تاريخ الاستحقاق")
+    
+    enable_date_filter = st.checkbox(
+        "تفعيل فلتر التاريخ", 
+        value=False, 
+        help="يقرأ التاريخ من H3 لكل عمود. الأعمدة خارج النطاق الزمني يتم تجاهلها بالكامل.",
+        key="enable_date_filter"
+    )
+    
+    if enable_date_filter:
+        default_start = date.today().replace(day=1)
+        default_end = date.today()
+        
+        st.info("ℹ️ سيتم تحليل الأعمدة التي تواريخها (H3) ضمن النطاق فقط")
+        
+        range_val = st.date_input(
+            "اختر المدى",
+            value=(default_start, default_end),
+            format="YYYY-MM-DD",
+            key="due_range"
+        )
+        
+        if isinstance(range_val, (list, tuple)) and len(range_val) >= 2:
+            due_start, due_end = range_val[0], range_val[1]
+        else:
+            due_start, due_end = None, None
+    else:
+        due_start, due_end = None, None
+        st.success("""
+        ✅ **المنطق الذكي مفعّل:**
+        - الخلية `-` أو فارغة = تقييم غير مستحق (لا يُحسب)
+        - الخلية `M` = تقييم مستحق غير منجز (يُحسب متبقي)
+        - الخلية بها قيمة = تقييم منجز (يُحسب منجز)
+        """)
+
+    # شعار المدرسة
+    st.subheader("🖼️ شعار المدرسة (اختياري)")
+    logo_file = st.file_uploader(
+        "ارفع شعار PNG/JPG",
+        type=["png", "jpg", "jpeg"],
+        key="logo_file"
+    )
+    st.session_state.logo_path = prepare_logo_file(logo_file)
+
+    st.markdown("---")
+    st.subheader("🏫 معلومات المدرسة")
+    school_name = st.text_input("اسم المدرسة", placeholder="مدرسة قطر النموذجية")
+    
+    st.subheader("✍️ التوقيعات")
+    coordinator_name = st.text_input("منسق/ة المشاريع")
+    academic_deputy = st.text_input("النائب الأكاديمي")
+    admin_deputy = st.text_input("النائب الإداري")
+    principal_name = st.text_input("مدير/ة المدرسة")
+
+    st.markdown("---")
+    run_analysis = st.button(
+        "▶️ تشغيل التحليل",
+        use_container_width=True,
+        type="primary",
+        disabled=not uploaded_files
+    )
+
+    # تحميل الملفات + فلترة الأوراق
+    st.subheader("📁 تحميل الملفات")
+    uploaded_files = st.file_uploader(
+        "اختر ملفات Excel",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True
+    )
+
     selected_sheets: List[tuple] = []
     all_sheets = []
     sheet_file_map = {}
@@ -1320,6 +1498,252 @@ with st.sidebar:
 # تحليل
 if not uploaded_files:
     st.info("📤 من الشريط الجانبي ارفع ملفات Excel للبدء في التحليل")
+elif run_analysis:
+    sheets_to_use = st.session_state.selected_sheets
+    
+    if not sheets_to_use:
+        tmp = []
+        for file in uploaded_files:
+            try:
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    tmp.append((file, sheet))
+            except Exception as e:
+                st.error(f"❌ خطأ في قراءة الملف: {e}")
+        sheets_to_use = tmp
+
+    if not sheets_to_use:
+        st.warning("⚠️ لم يتم العثور على أوراق داخل الملفات المرفوعة.")
+    else:
+        with st.spinner("⏳ جاري التحليل..."):
+            rows = []
+            for file, sheet in sheets_to_use:
+                rows.extend(analyze_excel_file(file, sheet, due_start, due_end))
+            
+            if rows:
+                df = pd.DataFrame(rows)
+                st.session_state.analysis_results = df
+                st.session_state.pivot_table = create_pivot_table(df)
+                
+                subjects_count = df['subject'].nunique() if 'subject' in df.columns else 0
+                students_count = len(st.session_state.pivot_table)
+                
+                st.success(f"✅ تم تحليل {students_count} طالب عبر {subjects_count} مادة")
+            else:
+                st.warning(
+                    "⚠️ لم يتم استخراج بيانات من الأوراق المحددة. "
+                    "تأكد من تنسيق الجداول وتواريخ الاستحقاق."
+                )
+
+# عرض النتائج
+pivot = st.session_state.pivot_table
+df = st.session_state.analysis_results
+
+if pivot is not None and not pivot.empty and df is not None:
+    st.subheader("📈 ملخص النتائج")
+    
+    c1, c2, c3, c4, c5 = st.columns(5)
+    
+    with c1:
+        st.metric("👥 إجمالي الطلاب", len(pivot))
+    
+    with c2:
+        subjects = df['subject'].nunique() if 'subject' in df.columns else 0
+        st.metric("📚 عدد المواد", subjects)
+    
+    with c3:
+        avg = 0.0
+        if 'المتوسط' in pivot.columns:
+            avg = float(pivot['المتوسط'].mean())
+            if pd.isna(avg):
+                avg = 0.0
+        st.metric("📊 متوسط الإنجاز", f"{avg:.1f}%")
+    
+    with c4:
+        platinum_count = int((pivot['الفئة'] == 'بلاتيني 🥇').sum()) if 'الفئة' in pivot.columns else 0
+        st.metric("🥇 فئة بلاتيني", platinum_count)
+    
+    with c5:
+        zero = 0
+        if 'المتوسط' in pivot.columns:
+            zero = int((pivot['المتوسط'] == 0).sum())
+        st.metric("⚠️ بدون إنجاز", zero)
+
+    st.divider()
+    st.subheader("📋 جدول النتائج التفصيلي")
+    st.dataframe(pivot, use_container_width=True, height=420)
+
+    st.divider()
+    
+    # الرسومات البيانية
+    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+    st.markdown('<h2 class="chart-title">🍩 التوزيع العام للفئات</h2>', unsafe_allow_html=True)
+    st.plotly_chart(chart_overall_donut(pivot), use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+    st.markdown('<h2 class="chart-title">🎯 مؤشر متوسط الإنجاز</h2>', unsafe_allow_html=True)
+    st.plotly_chart(chart_overall_gauge(pivot), use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+    st.markdown('<h2 class="chart-title">📊 توزيع الفئات حسب المادة الدراسية</h2>', unsafe_allow_html=True)
+    
+    try:
+        normalized = normalize_dataframe(df)
+        mode_choice = st.radio(
+            'نوع العرض',
+            ['النسبة المئوية (%)', 'العدد المطلق'],
+            horizontal=True,
+            key="chart_mode"
+        )
+        mode = 'percent' if mode_choice == 'النسبة المئوية (%)' else 'count'
+        agg_df = aggregate_by_subject(normalized)
+        st.plotly_chart(chart_stacked_by_subject(agg_df, mode=mode), use_container_width=True)
+    except Exception as e:
+        st.error(f"خطأ في الرسم: {e}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    # التقارير الفردية
+    st.subheader("📑 التقارير الفردية (PDF)")
+    
+    students = sorted(pivot['الطالب'].dropna().astype(str).unique().tolist()) if 'الطالب' in pivot.columns else []
+    
+    if students:
+        csel, crec = st.columns([2, 3])
+        
+        with csel:
+            sel = st.selectbox("اختر الطالب", students, index=0)
+            row = pivot[pivot['الطالب'] == sel].head(1)
+            g = str(row['الصف'].iloc[0]) if not row.empty and 'الصف' in row.columns else ''
+            s = str(row['الشعبة'].iloc[0]) if not row.empty and 'الشعبة' in row.columns else ''
+        
+        with crec:
+            reco = st.text_area(
+                "توصية منسق المشاريع",
+                value="",
+                height=120,
+                placeholder="اكتب التوصيات هنا..."
+            )
+
+        sdata = df[df['student_name'].str.strip().eq(sel.strip())].copy() if 'student_name' in df.columns else pd.DataFrame()
+        
+        if not sdata.empty:
+            table = sdata[['subject', 'total_count', 'completed_count']].rename(columns={
+                'subject': 'المادة',
+                'total_count': 'إجمالي',
+                'completed_count': 'منجز'
+            })
+            
+            table['متبقي'] = (table['إجمالي'] - table['منجز']).clip(lower=0).astype(int)
+            avg_stu = float(sdata['solve_pct'].mean()) if 'solve_pct' in sdata.columns else 0.0
+
+            st.markdown("### معاينة سريعة")
+            st.dataframe(table, use_container_width=True, height=260)
+
+            pdf_one = make_student_pdf_fpdf(
+                school_name=school_name or "",
+                student_name=sel,
+                grade=g,
+                section=s,
+                table_df=table[['المادة', 'إجمالي', 'منجز', 'متبقي']],
+                overall_avg=avg_stu,
+                reco_text=reco,
+                coordinator_name=coordinator_name or "",
+                academic_deputy=academic_deputy or "",
+                admin_deputy=admin_deputy or "",
+                principal_name=principal_name or "",
+                font_info=st.session_state.font_info,
+                logo_path=st.session_state.logo_path
+            )
+            
+            if not isinstance(pdf_one, bytes):
+                pdf_one = bytes(pdf_one)
+
+            st.download_button(
+                "📥 تحميل تقرير الطالب (PDF)",
+                pdf_one,
+                file_name=f"student_report_{sel}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+        st.markdown("---")
+        st.subheader("📦 تصدير جميع التقارير (ZIP)")
+        
+        same_reco = st.checkbox("استخدم نفس التوصية لكل الطلاب", value=True)
+        
+        if st.button("إنشاء ملف ZIP لكل التقارير", type="primary"):
+            with st.spinner("جاري إنشاء حزمة التقارير..."):
+                buf = io.BytesIO()
+                
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                    for stu in students:
+                        r = pivot[pivot['الطالب'] == stu].head(1)
+                        g = str(r['الصف'].iloc[0]) if not r.empty and 'الصف' in r.columns else ''
+                        s = str(r['الشعبة'].iloc[0]) if not r.empty and 'الشعبة' in r.columns else ''
+                        
+                        sd = df[df['student_name'].str.strip().eq(stu.strip())].copy() if 'student_name' in df.columns else pd.DataFrame()
+                        
+                        if not sd.empty:
+                            t = sd[['subject', 'total_count', 'completed_count']].rename(columns={
+                                'subject': 'المادة',
+                                'total_count': 'إجمالي',
+                                'completed_count': 'منجز'
+                            })
+                            
+                            t['متبقي'] = (t['إجمالي'] - t['منجز']).clip(lower=0).astype(int)
+                            av = float(sd['solve_pct'].mean()) if 'solve_pct' in sd.columns else 0.0
+                            
+                            rtext = reco if same_reco else ""
+                            
+                            pdfb = make_student_pdf_fpdf(
+                                school_name=school_name or "",
+                                student_name=stu,
+                                grade=g,
+                                section=s,
+                                table_df=t[['المادة', 'إجمالي', 'منجز', 'متبقي']],
+                                overall_avg=av,
+                                reco_text=rtext,
+                                coordinator_name=coordinator_name or "",
+                                academic_deputy=academic_deputy or "",
+                                admin_deputy=admin_deputy or "",
+                                principal_name=principal_name or "",
+                                font_info=st.session_state.font_info,
+                                logo_path=st.session_state.logo_path
+                            )
+                            
+                            if not isinstance(pdfb, bytes):
+                                pdfb = bytes(pdfb)
+                            
+                            safe = re.sub(r"[^\w\-]+", "_", str(stu))
+                            z.writestr(f"{safe}.pdf", pdfb)
+                
+                buf.seek(0)
+                
+                st.download_button(
+                    "⬇️ تحميل الحزمة (ZIP)",
+                    buf.getvalue(),
+                    file_name=f"student_reports_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+
+# Footer
+st.markdown(f"""
+<div class="footer">
+  <div class="line"></div>
+  <div class="school">مدرسة عثمان بن عفان النموذجية للبنين</div>
+  <div class="rights">© {datetime.now().year} جميع الحقوق محفوظة</div>
+  <div class="contact">للتواصل:
+    <a href="mailto:S.mahgoub0101@education.qa">S.mahgoub0101@education.qa</a>
+  </div>
+  <div class="credit">تطوير وتصميم: قسم التحول الرقمي</div>
+</div>
+""", unsafe_allow_html=True)
 elif run_analysis:
     sheets_to_use = st.session_state.selected_sheets
     
