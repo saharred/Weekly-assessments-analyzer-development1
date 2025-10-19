@@ -8,7 +8,8 @@ from datetime import datetime
 
 # Page config
 st.set_page_config(
-    page_title="محلل التقييمات الأسبوعية",
+    page_title=" -لضمان تنمية رقمية مستدامة 
+    محلل التقييمات الأسبوعية",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
