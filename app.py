@@ -783,29 +783,160 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
 
 @st.cache_data
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
-    """إنشاء جدول محوري من بيانات التحليل"""
+    """
+    إنشاء جدول محوري من بيانات التحليل
+    
+    ✅ إصلاح: دمج الطالب الواحد من جميع المواد في سجل واحد
+    - كل طالب يظهر مرة واحدة فقط
+    - يتم جمع جميع مواده في نفس الصف
+    """
     try:
         if df.empty:
             return pd.DataFrame()
         
-        # إزالة التكرارات
-        dfc = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'])
+        # ✅ خطوة 1: تنظيف البيانات
+        # إزالة التكرارات: نفس الطالب + نفس المادة (نأخذ أحدث قيمة)
+        dfc = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='last')
         
-        # الطلاب الفريدين
-        unq = dfc[['student_name', 'level', 'section']].drop_duplicates()
-        unq = unq.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
-        res = unq.copy()
+        # ✅ خطوة 2: إيجاد جميع الطلاب الفريدين
+        # المفتاح الفريد: (اسم الطالب + الصف + الشعبة)
+        unique_students = dfc[['student_name', 'level', 'section']].drop_duplicates()
+        unique_students = unique_students.sort_values(
+            ['level', 'section', 'student_name']
+        ).reset_index(drop=True)
         
-        # إضافة بيانات كل مادة
-        for subject in sorted(dfc['subject'].unique()):
-            sub = dfc[dfc['subject'] == subject].copy()
+        st.info(f"🔄 تم إيجاد {len(unique_students)} طالب فريد من {len(df)} سجل")
+        
+        # نبدأ بجدول الطلاب الفريدين فقط
+        result = unique_students.copy()
+        
+        # ✅ خطوة 3: لكل مادة، نضيف أعمدتها
+        subjects = sorted(dfc['subject'].dropna().unique())
+        st.info(f"📚 المواد المكتشفة: {', '.join(subjects)}")
+        
+        for subject in subjects:
+            subject_data = dfc[dfc['subject'] == subject].copy()
             
-            # ملء القيم الفارغة بصفر
-            sub[['total_count', 'completed_count', 'solve_pct']] = sub[['total_count', 'completed_count', 'solve_pct']].fillna(0)
+            # ملء القيم الفارغة
+            subject_data[['total_count', 'completed_count', 'solve_pct']] = \
+                subject_data[['total_count', 'completed_count', 'solve_pct']].fillna(0)
             
-            # دمج الأعمدة الرقمية
-            block = sub[['student_name', 'level', 'section', 'total_count', 'completed_count', 'solve_pct']].rename(columns={
+            # ✅ إعداد أعمدة هذه المادة
+            subject_cols = subject_data[[
+                'student_name', 'level', 'section', 
+                'total_count', 'completed_count', 'solve_pct'
+            ]].copy()
+            
+            # إعادة تسمية الأعمدة
+            subject_cols = subject_cols.rename(columns={
                 'total_count': f'{subject} - إجمالي',
+                'completed_count': f'{subject} - منجز',
+                'solve_pct': f'{subject} - النسبة'
+            })
+            
+            # ✅ إزالة أي تكرار (طالب واحد = قيمة واحدة لكل مادة)
+            subject_cols = subject_cols.drop_duplicates(
+                subset=['student_name', 'level', 'section'], 
+                keep='last'
+            )
+            
+            # ✅ دمج مع الجدول الرئيسي (left join)
+            result = result.merge(
+                subject_cols, 
+                on=['student_name', 'level', 'section'], 
+                how='left'
+            )
+            
+            # إضافة عمود "المتبقي"
+            pending_data = subject_data[[
+                'student_name', 'level', 'section', 'pending_titles'
+            ]].copy()
+            
+            pending_data = pending_data.rename(columns={
+                'pending_titles': f'{subject} - متبقي'
+            })
+            
+            pending_data = pending_data.drop_duplicates(
+                subset=['student_name', 'level', 'section'],
+                keep='last'
+            )
+            
+            result = result.merge(
+                pending_data, 
+                on=['student_name', 'level', 'section'], 
+                how='left'
+            )
+
+        # ✅ خطوة 4: حساب المتوسط والفئة (عبر جميع المواد)
+        pct_cols = [c for c in result.columns if 'النسبة' in c]
+        
+        if pct_cols:
+            # حساب المتوسط (نتجاهل القيم الفارغة والأصفار)
+            def calc_average(row):
+                values = row[pct_cols].dropna()
+                # نتجاهل الأصفار (مواد بدون تقييمات)
+                values = values[values > 0]
+                return values.mean() if len(values) > 0 else 0
+            
+            result['المتوسط'] = result.apply(calc_average, axis=1)
+            
+            def categorize(p):
+                if pd.isna(p) or p == 0:
+                    return 'بحاجة لتحسين'
+                elif p >= 90:
+                    return 'بلاتيني 🥇'
+                elif p >= 80:
+                    return 'ذهبي 🥈'
+                elif p >= 70:
+                    return 'فضي 🥉'
+                elif p >= 60:
+                    return 'برونزي'
+                else:
+                    return 'بحاجة لتحسين'
+            
+            result['الفئة'] = result['المتوسط'].apply(categorize)
+
+        # ✅ خطوة 5: إعادة تسمية الأعمدة الرئيسية
+        result = result.rename(columns={
+            'student_name': 'الطالب',
+            'level': 'الصف',
+            'section': 'الشعبة'
+        })
+        
+        # ✅ خطوة 6: تنسيق الأعمدة
+        for c in result.columns:
+            if ('إجمالي' in c) or ('منجز' in c):
+                result[c] = result[c].fillna(0).astype(int)
+            elif ('النسبة' in c) or (c == 'المتوسط'):
+                result[c] = result[c].fillna(0).round(1)
+            elif 'متبقي' in c:
+                result[c] = result[c].fillna('-')
+        
+        # ✅ خطوة 7: التأكد النهائي من عدم التكرار
+        initial_count = len(result)
+        result = result.drop_duplicates(
+            subset=['الطالب', 'الصف', 'الشعبة'],
+            keep='first'
+        ).reset_index(drop=True)
+        final_count = len(result)
+        
+        if initial_count != final_count:
+            st.warning(
+                f"⚠️ تم حذف {initial_count - final_count} صف مكرر. "
+                f"العدد النهائي: {final_count} طالب"
+            )
+        
+        # ✅ رسالة نجاح
+        st.success(f"✅ الجدول النهائي: {len(result)} طالب فريد")
+        
+        return result
+    
+    except Exception as e:
+        st.error(f"❌ خطأ في معالجة البيانات: {e}")
+        import traceback
+        with st.expander("🔍 تفاصيل الخطأ"):
+            st.code(traceback.format_exc())
+        return pd.DataFrame()جمالي',
                 'completed_count': f'{subject} - منجز',
                 'solve_pct': f'{subject} - النسبة'
             }).drop_duplicates(subset=['student_name', 'level', 'section'])
@@ -1073,18 +1204,20 @@ with st.sidebar:
     st.session_state.selected_sheets = selected_sheets
 
     # فلتر تاريخ الاستحقاق
-    st.subheader("⏳ فلترة تاريخ الاستحقاق (من — إلى)")
+    st.subheader("⏳ فلترة الأعمدة حسب تاريخ الاستحقاق")
     
     enable_date_filter = st.checkbox(
         "تفعيل فلتر التاريخ", 
         value=False, 
-        help="إذا تم التفعيل، سيتم عرض التقييمات ضمن النطاق الزمني فقط",
+        help="يقرأ التاريخ من H3 لكل عمود. الأعمدة خارج النطاق الزمني يتم تجاهلها بالكامل.",
         key="enable_date_filter"
     )
     
     if enable_date_filter:
         default_start = date.today().replace(day=1)
         default_end   = date.today()
+        
+        st.info("ℹ️ سيتم تحليل الأعمدة التي تواريخها (H3) ضمن النطاق فقط")
         
         range_val = st.date_input(
             "اختر المدى",
@@ -1099,7 +1232,12 @@ with st.sidebar:
             due_start, due_end = None, None
     else:
         due_start, due_end = None, None
-        st.info("ℹ️ فلتر التاريخ معطّل - سيتم تحليل جميع الأعمدة")
+        st.success("""
+        ✅ **المنطق الذكي مفعّل:**
+        - الخلية `-` أو فارغة = تقييم غير مستحق (لا يُحسب)
+        - الخلية `M` = تقييم مستحق غير منجز (يُحسب متبقي)
+        - الخلية بها قيمة = تقييم منجز (يُحسب منجز)
+        """)
 
     # شعار المدرسة
     st.subheader("🖼️ شعار المدرسة (اختياري)")
