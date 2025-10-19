@@ -621,32 +621,38 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
             due_start, due_end = due_end, due_start
 
         assessment_columns = []
+        skipped_reasons = []  # ✅ تتبع الأعمدة المتجاهلة
         
         # البحث عن أعمدة التقييمات (بدءاً من H = العمود 7)
         for c in range(7, df.shape[1]):
             # 1) قراءة عنوان العمود
             title = df.iloc[0, c] if c < df.shape[1] else None
-            # الأعمدة ذات العنوان الفارغ لا توقف المسح؛ يتم تخطيها فقط
-            if pd.isna(title) or str(title).strip() == "":
-                continue
+            if pd.isna(title):
+                break
             
             t = str(title).strip()
 
-            # 2) تجاهل فقط العناوين التي هي شرطات بالكامل (وليس أي عنوان يحوي شرطة)
-            if t in ['-', '—', '–'] or re.fullmatch(r"[-—–]+", t):
+            # 2) تجاهل العناوين التي تحتوي على شرطات (إلا إذا كان أقل من 3 محارف)
+            if any(ch in t for ch in ['-', '—', '–']) and len(t.replace('-','').replace('—','').replace('–','').strip()) < 2:
+                skipped_reasons.append(f"'{t}' - عنوان شرطة")
                 continue
 
             # 3) قراءة تاريخ الاستحقاق من H3 (الصف 2، index=2)
-            due_cell = df.iloc[2, c] if c < df.shape[1] else None
+            due_cell = df.iloc[2, c] if 2 < df.shape[0] and c < df.shape[1] else None
             due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
             
             # 4) فلترة حسب النطاق الزمني
-            if filter_active and not in_range(due_dt, due_start, due_end):
-                continue
+            if filter_active:
+                if due_dt is None:
+                    skipped_reasons.append(f"'{t}' - لا يوجد تاريخ صالح في H3")
+                    continue
+                if not in_range(due_dt, due_start, due_end):
+                    skipped_reasons.append(f"'{t}' - خارج النطاق ({due_dt})")
+                    continue
 
             # 5) تجاهل الأعمدة الفارغة تماماً (فحص جميع الصفوف)
             all_dash = True
-            for r in range(4, len(df)):  # ✅ إصلاح: فحص كل الصفوف
+            for r in range(4, len(df)):
                 if r >= df.shape[0]:
                     break
                 val = df.iloc[r, c]
@@ -657,13 +663,27 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
                         break
             
             if all_dash:
+                skipped_reasons.append(f"'{t}' - عمود فارغ")
                 continue
 
             # إضافة العمود للتحليل
-            assessment_columns.append({'index': c, 'title': t})
+            assessment_columns.append({'index': c, 'title': t, 'due_date': due_dt})
 
+        # ✅ عرض معلومات Debug
         if not assessment_columns:
+            st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على أعمدة تقييم صالحة")
+            if skipped_reasons:
+                with st.expander(f"📋 الأعمدة المتجاهلة ({len(skipped_reasons)})"):
+                    for reason in skipped_reasons[:10]:  # أول 10 فقط
+                        st.text(f"  • {reason}")
             return []
+        
+        # ✅ عرض إحصائيات
+        st.success(f"✅ الورقة '{sheet_name}': وُجد {len(assessment_columns)} عمود تقييم")
+        if skipped_reasons:
+            with st.expander(f"ℹ️ تم تجاهل {len(skipped_reasons)} عمود"):
+                for reason in skipped_reasons[:5]:
+                    st.text(f"  • {reason}")
 
         # معالجة بيانات الطلاب
         results = []
@@ -722,6 +742,9 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
 
     except Exception as e:
         st.error(f"❌ خطأ في تحليل الملف '{sheet_name}': {e}")
+        import traceback
+        with st.expander("🔍 تفاصيل الخطأ التقنية"):
+            st.code(traceback.format_exc())
         return []
 
 @st.cache_data
