@@ -227,7 +227,15 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image("https://i.imgur.com/1bX5dzp.jpeg", width=120)
 
-st.markdown("<div class='header-container'><div style='display: flex; justify-content: center; align-items: center; gap: 30px; margin-bottom: 20px;'><img src='https://i.imgur.com/1bX5dzp.jpeg' style='height: 100px;'><img src='https://i.imgur.com/jFzu8As.jpeg' style='height: 100px;'></div><h1>محلل التقييمات الأسبوعية</h1><p>وزارة التربية والتعليم والتعليم العالي</p><p style='color: #D4A574;'>لضمان تنمية رقمية مستدامة</p></div>", unsafe_allow_html=True)
+col1, col2, col3 = st.columns([1, 2, 1])
+with col1:
+    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=60)
+with col2:
+    st.markdown("<div style='text-align: center;'><h2 style='margin: 10px 0;'>محلل التقييمات الأسبوعية</h2></div>", unsafe_allow_html=True)
+with col3:
+    st.write("")
+
+st.markdown("<div style='text-align: center;'><p style='font-size: 14px; color: #8B3A3A; font-weight: 600;'>وزارة التربية والتعليم والتعليم العالي</p><p style='font-size: 12px; color: #D4A574;'>لضمان تنمية رقمية مستدامة</p></div>", unsafe_allow_html=True)
 
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
@@ -235,7 +243,7 @@ if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
 with st.sidebar:
-    st.image("https://i.imgur.com/1bX5dzp.jpeg", width=100)
+    st.image("https://i.imgur.com/jFzu8As.jpeg", width=120)
     st.markdown("---")
     st.header("الإعدادات")
     
