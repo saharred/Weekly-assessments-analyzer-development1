@@ -19,42 +19,236 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
-    * { font-family: 'Cairo', 'Arial', sans-serif; }
-    .main { background: white; }
-    body { background: white; }
-    .stApp { background: white; }
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+    
+    * { 
+        font-family: 'Cairo', 'Segoe UI', -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+    
+    /* Main Background */
+    .main { background: #FFFFFF; }
+    body { background: #FFFFFF; }
+    .stApp { background: #FFFFFF; }
+    
+    /* Header Container - Modern & Professional */
     .header-container {
-        background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%);
-        padding: 40px; border-radius: 20px; color: white; text-align: center;
-        margin-bottom: 30px; box-shadow: 0 10px 30px rgba(139, 58, 58, 0.25);
-        border: 2px solid #D4A574;
+        background: linear-gradient(to bottom, #8A1538 0%, #6B1029 100%);
+        padding: 48px 40px;
+        border-radius: 0;
+        color: white;
+        text-align: center;
+        margin-bottom: 32px;
+        box-shadow: 0 4px 12px rgba(138, 21, 56, 0.15);
+        border-bottom: 3px solid #C5A572;
     }
-    .header-container h1 { margin: 0; font-size: 36px; font-weight: 700; }
-    .header-container p { margin: 12px 0 0 0; font-size: 16px; opacity: 0.95; }
+    
+    .header-container h1 { 
+        margin: 0 0 12px 0;
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1.3;
+    }
+    
+    .header-container .subtitle { 
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0.95;
+        margin: 0 0 8px 0;
+    }
+    
+    .header-container .accent-line {
+        font-size: 12px;
+        color: #C5A572;
+        font-weight: 600;
+        margin: 0 0 16px 0;
+    }
+    
+    .header-container .description {
+        font-size: 12px;
+        opacity: 0.9;
+        margin: 0;
+    }
+    
+    /* Sidebar - Solid Qatar Maroon */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #8B3A3A 0%, #A0483D 100%);
-        box-shadow: 2px 0 15px rgba(0, 0, 0, 0.1);
+        background: #8A1538 !important;
+        border-right: 1px solid #6B1029;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
     }
-    [data-testid="stSidebar"] * { color: white; }
+    
+    [data-testid="stSidebar"] * { 
+        color: white !important;
+    }
+    
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        font-weight: 600;
+    }
+    
+    /* Section Box - Clean & Minimal */
     .section-box {
-        background: white; padding: 25px; border-radius: 15px; margin: 20px 0;
-        border-left: 5px solid #8B3A3A; box-shadow: 0 4px 15px rgba(139, 58, 58, 0.1);
+        background: #FAFAF9;
+        padding: 24px;
+        border-radius: 8px;
+        margin: 24px 0;
+        border-left: 4px solid #8A1538;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
+    
+    /* Metric Box - Modern Card Style */
     .metric-box {
-        background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%);
-        color: white; padding: 25px; border-radius: 12px; text-align: center;
-        font-weight: 600; box-shadow: 0 6px 20px rgba(139, 58, 58, 0.2);
-        border: 2px solid #D4A574;
+        background: #FFFFFF;
+        border: 2px solid #E8E8E6;
+        border-left: 4px solid #8A1538;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        transition: all 0.2s ease;
     }
+    
+    .metric-box:hover {
+        border-left-color: #C5A572;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+    }
+    
+    .metric-value {
+        font-size: 36px;
+        font-weight: 700;
+        color: #8A1538;
+        line-height: 1.2;
+        margin-bottom: 4px;
+    }
+    
+    .metric-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: #5A5A5A;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    /* Buttons - Clean Qatar Maroon */
     .stButton > button {
-        background: linear-gradient(135deg, #8B3A3A 0%, #A0483D 100%) !important;
-        color: white !important; border: 2px solid #D4A574 !important;
-        padding: 12px 28px !important; border-radius: 10px !important;
-        font-weight: 600 !important; font-size: 14px !important;
+        background: #8A1538 !important;
+        color: white !important;
+        border: none !important;
+        padding: 12px 24px !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 2px 4px rgba(138, 21, 56, 0.2) !important;
     }
-    hr { border-color: #8B3A3A !important; margin: 25px 0 !important; }
-    h1, h2, h3, h4, h5, h6 { color: #8B3A3A; font-weight: 700; }
+    
+    .stButton > button:hover {
+        background: #6B1029 !important;
+        box-shadow: 0 4px 8px rgba(138, 21, 56, 0.3) !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    /* Divider */
+    hr { 
+        border-color: #E8E8E6 !important;
+        margin: 24px 0 !important;
+        border-width: 1px !important;
+    }
+    
+    /* Typography */
+    h1, h2, h3, h4, h5, h6 { 
+        color: #8A1538;
+        font-weight: 600;
+    }
+    
+    h1 { font-size: 32px; line-height: 1.3; margin-bottom: 12px; }
+    h2 { font-size: 24px; line-height: 1.4; margin-bottom: 16px; }
+    h3 { font-size: 20px; line-height: 1.4; margin-bottom: 12px; }
+    h4 { font-size: 16px; line-height: 1.5; margin-bottom: 8px; }
+    
+    p, div, span {
+        font-size: 14px;
+        line-height: 1.6;
+        color: #2C2C2C;
+    }
+    
+    /* Logo Containers */
+    .logo-header-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 40px;
+        background: #FAFAF9;
+        border-bottom: 2px solid #E8E8E6;
+        margin-bottom: 0;
+    }
+    
+    .logo-left {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+    }
+    
+    .logo-right-group {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        padding: 10px;
+    }
+    
+    .logo-sidebar-container {
+        text-align: center;
+        padding: 24px 20px;
+        margin-bottom: 24px;
+    }
+    
+    .logo-footer-container {
+        text-align: center;
+        padding: 20px;
+        margin: 0 auto 16px;
+    }
+    
+    /* Download Buttons */
+    .stDownloadButton > button {
+        background: #FFFFFF !important;
+        color: #8A1538 !important;
+        border: 2px solid #8A1538 !important;
+        padding: 10px 22px !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .stDownloadButton > button:hover {
+        background: #8A1538 !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    /* Dataframe Styling */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #E8E8E6;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* Metrics Enhancement */
+    [data-testid="stMetricValue"] {
+        font-size: 36px !important;
+        font-weight: 700 !important;
+        color: #8A1538 !important;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #5A5A5A !important;
+        text-transform: uppercase !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -215,39 +409,56 @@ def create_pivot_table(df):
         logger.error(f"خطأ: {str(e)}")
         return pd.DataFrame()
 
-st.markdown("")
+# Header with Logos - Improved Layout
 st.markdown("")
 st.markdown("")
 
 col1, col2, col3 = st.columns([1, 1.5, 1])
 with col1:
-    st.image("https://i.imgur.com/QfVfT9X.jpeg", width=90)
+    st.markdown("<div class='logo-left'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/QfVfT9X.jpeg", width=120)
+    st.markdown("</div>", unsafe_allow_html=True)
+
 with col3:
-    col3_1, col3_2 = st.columns(2)
-    with col3_1:
-        st.image("https://i.imgur.com/jFzu8As.jpeg", width=90)
-    with col3_2:
-        st.image("https://i.imgur.com/XLef7tS.png", width=110)
+    st.markdown("<div class='logo-right-group'>", unsafe_allow_html=True)
+    subcol1, subcol2 = st.columns(2)
+    with subcol1:
+        st.image("https://i.imgur.com/jFzu8As.jpeg", width=110)
+    with subcol2:
+        st.image("https://i.imgur.com/XLef7tS.png", width=130)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("<div class='header-container'><h1>📊 محلل التقييمات الأسبوعية</h1><p style='font-size: 14px; margin: 10px 0; font-weight: 600;'>وزارة التربية والتعليم والتعليم العالي</p><p style='font-size: 13px; color: #D4A574; font-weight: 600; margin: 5px 0;'>ضمان تنمية رقمية مستدامة</p><p style='font-size: 12px; opacity: 0.9;'>نظام تحليل شامل وموثوق لنتائج الطلاب</p></div>", unsafe_allow_html=True)
+# Main Header
+st.markdown("""
+<div class='header-container'>
+    <h1>📊 محلل التقييمات الأسبوعية</h1>
+    <p class='subtitle'>وزارة التربية والتعليم والتعليم العالي</p>
+    <p class='accent-line'>ضمان تنمية رقمية مستدامة</p>
+    <p class='description'>نظام تحليل شامل وموثوق لنتائج الطلاب</p>
+</div>
+""", unsafe_allow_html=True)
 
+# Session State
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
 if "pivot_table" not in st.session_state:
     st.session_state.pivot_table = None
 
+# Sidebar
 with st.sidebar:
-    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/XLef7tS.png' style='width: 100px; height: auto;'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='logo-sidebar-container'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/XLef7tS.png", width=110)
+    st.markdown("</div>", unsafe_allow_html=True)
     
     st.markdown("---")
-    st.header("الإعدادات")
+    st.header("⚙️ الإعدادات")
     
-    st.subheader("تحميل الملفات")
+    st.subheader("📁 تحميل الملفات")
     uploaded_files = st.file_uploader("اختر ملفات Excel", type=["xlsx", "xls"], accept_multiple_files=True)
     
     selected_sheets = []
     if uploaded_files:
-        st.success(f"تم رفع {len(uploaded_files)} ملف")
+        st.success(f"✅ تم رفع {len(uploaded_files)} ملف")
         all_sheets = []
         sheet_file_map = {}
         for file_idx, file in enumerate(uploaded_files):
@@ -258,39 +469,42 @@ with st.sidebar:
                     all_sheets.append(sheet_display)
                     sheet_file_map[sheet_display] = (file, sheet)
             except Exception as e:
-                st.error(f"خطأ: {e}")
+                st.error(f"❌ خطأ في قراءة الملف: {e}")
         
         if all_sheets:
-            st.info(f"وجدت {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
-            select_all = st.checkbox("اختر الجميع", value=True)
+            st.info(f"📋 وجدت {len(all_sheets)} مادة من {len(uploaded_files)} ملفات")
+            select_all = st.checkbox("✔️ اختر الجميع", value=True)
             if select_all:
                 selected_sheets_display = all_sheets
             else:
-                selected_sheets_display = st.multiselect("اختر المواد", all_sheets, default=[])
+                selected_sheets_display = st.multiselect("اختر المواد للتحليل", all_sheets, default=[])
             selected_sheets = [(sheet_file_map[s][0], sheet_file_map[s][1]) for s in selected_sheets_display]
     else:
-        st.info("ارفع ملفات Excel للبدء")
+        st.info("📤 ارفع ملفات Excel للبدء")
     
     st.markdown("---")
-    st.subheader("معلومات المدرسة")
+    st.subheader("🏫 معلومات المدرسة")
     school_name = st.text_input("اسم المدرسة", placeholder="مدرسة قطر النموذجية")
     
-    st.subheader("التوقيعات")
+    st.subheader("✍️ التوقيعات")
     coordinator_name = st.text_input("منسق المشاريع")
     academic_deputy = st.text_input("النائب الأكاديمي")
     admin_deputy = st.text_input("النائب الإداري")
     principal_name = st.text_input("مدير المدرسة")
     
     st.markdown("---")
-    run_analysis = st.button("تشغيل التحليل", use_container_width=True, type="primary", disabled=not (uploaded_files and selected_sheets))
+    run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary", disabled=not (uploaded_files and selected_sheets))
     
     st.markdown("---")
-    st.markdown("<div style='text-align: center; margin: 20px 0;'><img src='https://i.imgur.com/XLef7tS.png' style='width: 80px; height: auto;'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='logo-footer-container'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/XLef7tS.png", width=120)
+    st.markdown("</div>", unsafe_allow_html=True)
 
+# Main Content
 if not uploaded_files:
-    st.info("ارفع ملفات Excel من الشريط الجانبي")
+    st.info("📤 الرجاء رفع ملفات Excel من الشريط الجانبي للبدء في التحليل")
 elif run_analysis:
-    with st.spinner("جاري التحليل..."):
+    with st.spinner("⏳ جاري التحليل، الرجاء الانتظار..."):
         all_results = []
         for file, sheet in selected_sheets:
             results = analyze_excel_file(file, sheet)
@@ -301,41 +515,74 @@ elif run_analysis:
             st.session_state.analysis_results = df
             pivot = create_pivot_table(df)
             st.session_state.pivot_table = pivot
-            st.success(f"تم تحليل {len(pivot)} طالب من {len(set(df['subject']))} مادة")
+            st.success(f"✅ تم تحليل {len(pivot)} طالب من {len(set(df['subject']))} مادة بنجاح")
 
 if st.session_state.pivot_table is not None:
     pivot = st.session_state.pivot_table
     df = st.session_state.analysis_results
     
+    # Metrics Section
+    st.markdown("### 📈 ملخص النتائج")
     col1, col2, col3, col4, col5 = st.columns(5)
+    
     with col1:
-        st.metric("الطلاب", len(pivot))
+        st.metric("👥 إجمالي الطلاب", len(pivot))
     with col2:
-        st.metric("المواد", df['subject'].nunique())
+        st.metric("📚 عدد المواد", df['subject'].nunique())
     with col3:
         avg = pivot['المتوسط'].mean() if 'المتوسط' in pivot.columns else 0
-        st.metric("المتوسط", f"{avg:.1f}%")
+        st.metric("📊 متوسط الإنجاز", f"{avg:.1f}%")
     with col4:
         platinum = len(pivot[pivot['الفئة'].str.contains('بلاتينية', na=False)])
-        st.metric("بلاتينية", platinum)
+        st.metric("🥇 فئة بلاتينية", platinum)
     with col5:
         zero = len(pivot[pivot['المتوسط'] == 0])
-        st.metric("بدون إنجاز", zero)
+        st.metric("⚠️ بدون إنجاز", zero)
     
     st.divider()
-    st.subheader("البيانات")
-    st.dataframe(pivot, use_container_width=True)
     
+    # Data Table
+    st.subheader("📋 جدول النتائج التفصيلي")
+    st.dataframe(pivot, use_container_width=True, height=400)
+    
+    st.divider()
+    
+    # Download Section
+    st.subheader("💾 تحميل النتائج")
     col1, col2 = st.columns(2)
+    
     with col1:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             pivot.to_excel(writer, index=False, sheet_name='النتائج')
-        st.download_button("تحميل Excel", output.getvalue(), f"results_{datetime.now().strftime('%Y%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.download_button(
+            "📥 تحميل Excel",
+            output.getvalue(),
+            f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
     
     with col2:
         csv_data = pivot.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("تحميل CSV", csv_data, f"results_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+        st.download_button(
+            "📥 تحميل CSV",
+            csv_data,
+            f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "text/csv",
+            use_container_width=True
+        )
     
     st.divider()
-    st.markdown("<div style='text-align: center; margin-top: 40px; padding: 20px; color: #8B3A3A; font-size: 12px; border-top: 2px solid #8B3A3A;'><p>© جميع الحقوق محفوظة لمدرسة عثمان بن عفان النموذجية للبنين</p><p>منسقة المشاريع الإلكترونية / سحر عثمان</p></div>", unsafe_allow_html=True)
+    
+    # Footer
+    st.markdown("""
+    <div style='text-align: center; margin-top: 48px; padding: 24px; color: #5A5A5A; font-size: 12px; border-top: 2px solid #E8E8E6;'>
+        <p style='color: #8A1538; font-weight: 600; margin-bottom: 8px;'>
+            © جميع الحقوق محفوظة لمدرسة عثمان بن عفان النموذجية للبنين
+        </p>
+        <p style='margin: 0;'>
+            منسقة المشاريع الإلكترونية / سحر عثمان
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
