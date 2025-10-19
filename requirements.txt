@@ -6,3 +6,10 @@ streamlit>=1.38.0
 python-dotenv>=1.0.0
 arabic-reshaper
 python-bidi
+streamlit
+pandas
+openpyxl
+matplotlib
+plotly
+kaleido
+pillow
