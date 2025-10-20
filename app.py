@@ -456,19 +456,40 @@ def apply_custom_styles():
     [data-testid="stSidebar"] .stTextInput > div > div,
     [data-testid="stSidebar"] .stNumberInput > div > div{ border:1px solid rgba(0,0,0,.2) !important; box-shadow:none !important; }
 
+    /* ✅ تلوين زر Browse files */
+    [data-testid="stSidebar"] button[kind="secondary"] {
+        background-color: #8A1538 !important;
+        color: white !important;
+        border: 2px solid #C9A646 !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stSidebar"] button[kind="secondary"]:hover {
+        background-color: #6B1029 !important;
+        border-color: #E8D4A0 !important;
+    }
+    [data-testid="stFileUploader"] section button {
+        background-color: #8A1538 !important;
+        color: white !important;
+        border: 2px solid #C9A646 !important;
+    }
+
     .chart-container{background:#fff;border:2px solid #E5E7EB;border-right:5px solid #8A1538;
       border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
     .chart-title{font-size:20px;font-weight:800;color:#8A1538;text-align:center;margin-bottom:10px}
 
     .footer{margin-top:22px;background:linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
-      color:#fff;border-radius:10px;padding:12px 10px;text-align:center;box-shadow:0 6px 18px rgba(138,21,56,.20);position:relative}
+      color:#fff;border-radius:10px;padding:20px 15px;text-align:center;box-shadow:0 6px 18px rgba(138,21,56,.20);position:relative}
     .footer .line{width:100%;height:3px;background:linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
       position:absolute;top:0;left:0}
-    .footer .school{font-weight:800;font-size:15px;margin:2px 0 4px}
-    .footer .rights{font-weight:700;font-size:12px;margin:0 0 4px;opacity:.95}
-    .footer .contact{font-size:12px;margin-top:2px}
-    .footer a{color:#E8D4A0;font-weight:700;text-decoration:none;border-bottom:1px solid #C9A646}
-    .footer .credit{margin-top:6px;font-size:11px;opacity:.85}
+    .footer .school-ar{font-weight:800;font-size:16px;margin:8px 0 4px;letter-spacing:0.5px}
+    .footer .school-en{font-weight:600;font-size:13px;margin:0 0 10px;opacity:0.95;font-style:italic}
+    .footer .copyright{font-weight:700;font-size:12px;margin:8px 0 4px;opacity:.95}
+    .footer .dev-ar{font-size:13px;margin:4px 0;font-weight:600}
+    .footer .dev-en{font-size:11px;margin:0 0 8px;opacity:0.9;font-style:italic}
+    .footer .contact{font-size:13px;margin:8px 0;padding:8px;background:rgba(201,166,70,0.15);border-radius:6px}
+    .footer .contact a{color:#E8D4A0;font-weight:700;text-decoration:none;border-bottom:1px solid #C9A646}
+    .footer .vision{margin:12px 0 6px;font-size:14px;font-weight:700;color:#C9A646;padding:10px;
+      background:rgba(255,255,255,0.1);border-radius:8px;border:2px solid rgba(201,166,70,0.3)}
     
     .stRadio > div { direction: rtl; justify-content: flex-end; }
     .stCheckbox > label { direction: rtl; }
@@ -865,6 +886,55 @@ def get_recommendation_by_category(category: str, student_name: str = "") -> str
         f"طالبنا العزيز {student_name if student_name else ''}، نشجعك على الاستمرار في المتابعة وتحقيق الأفضل."
     )
 
+def risk_score(row):
+    """
+    حساب درجة الخطر للطالب
+    
+    Args:
+        row: صف الطالب من الجدول المحوري
+    
+    Returns:
+        int: درجة خطر من 0-100
+    """
+    # الأساس: 100 - متوسط الإنجاز
+    base = 100 - float(row.get("المتوسط", 0) or 0)
+    
+    # إضافة وزن للمتبقيات
+    pending_cols = [c for c in row.index if "متبقي" in c]
+    
+    def _to_int(x):
+        try:
+            return int(str(x).split()[0])
+        except:
+            return 0
+    
+    pending_total = sum(_to_int(row[c]) for c in pending_cols if pd.notna(row[c]))
+    
+    # المعادلة: الأساس + (5 × عدد المتبقيات)
+    score = base + 5 * pending_total
+    
+    # تقييد القيمة بين 0-100
+    return max(0, min(100, score))
+
+def quick_tip(row):
+    """
+    نصيحة سريعة حسب درجة الخطر
+    
+    Args:
+        row: صف الطالب من الجدول المحوري
+    
+    Returns:
+        str: نصيحة للمتابعة
+    """
+    r = row.get("خطر", 0)
+    
+    if r >= 70:
+        return "⚠️ تواصل فوري مع وليّ الأمر وجدولة دعم هذا الأسبوع."
+    elif r >= 40:
+        return "⚡ خطة متابعة: إتمام تقييمين متأخرين خلال 3 أيام."
+    else:
+        return "✅ استمرار بنفس الوتيرة مع مكافأة تحفيزية."
+
 def categorize_performance(percent: float) -> str:
     """تصنيف الأداء بناءً على النسبة - نسخة محسّنة"""
     if pd.isna(percent):
@@ -1122,7 +1192,7 @@ def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
 # ============== دوال الرسوم البيانية ==============
 
 def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
-    """رسم بياني مكدس حسب المادة"""
+    """رسم بياني مكدس حسب المادة مع تعريفات واضحة"""
     fig = go.Figure()
     
     colors = [CATEGORY_COLORS[c] for c in CATEGORY_ORDER]
@@ -1132,16 +1202,18 @@ def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
         
         vals = d['percent_share'] if mode == 'percent' else d['count']
         
-        # النصوص على الأعمدة
+        # ✅ النصوص على الأعمدة - فقط إذا كانت القيمة > 5%
         text = [
-            (f"{v:.1f}%" if mode == 'percent' else str(int(v))) if v > 0 else ""
+            (f"{v:.1f}%" if mode == 'percent' else str(int(v))) if v > 5 else ""
             for v in vals
         ]
         
-        # Hover info
+        # ✅ Hover محسّن مع معلومات أكثر
         hover = (
-            "<b>%{y}</b><br>الفئة: " + cat + "<br>" +
-            ("النسبة: %{x:.1f}%<extra></extra>" if mode == 'percent' else "العدد: %{x}<extra></extra>")
+            "<b>المادة: %{y}</b><br>" +
+            f"<b>الفئة: {cat}</b><br>" +
+            ("النسبة: %{x:.1f}%<br>" if mode == 'percent' else "العدد: %{x}<br>") +
+            "<extra></extra>"
         )
         
         fig.add_trace(go.Bar(
@@ -1151,36 +1223,54 @@ def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
             orientation='h',
             marker=dict(
                 color=colors[i],
-                line=dict(color='white', width=1)
+                line=dict(color='white', width=2)  # ✅ حد أوضح
             ),
             text=text,
             textposition='inside',
-            textfont=dict(size=11, family='Cairo'),
-            hovertemplate=hover
+            textfont=dict(size=12, family='Cairo', color='white'),
+            hovertemplate=hover,
+            showlegend=True  # ✅ إظهار التعريف
         ))
     
     fig.update_layout(
         title=dict(
-            text="توزيع الفئات حسب المادة",
-            font=dict(size=20, family='Cairo', color='#8A1538'),
-            x=0.5
+            text="توزيع الفئات حسب المادة الدراسية",
+            font=dict(size=22, family='Cairo', color='#8A1538'),
+            x=0.5,
+            y=0.98
         ),
         xaxis=dict(
             title="النسبة المئوية (%)" if mode == 'percent' else "عدد الطلاب",
+            titlefont=dict(size=14, family='Cairo'),
             tickfont=dict(size=12, family='Cairo'),
             gridcolor='#E5E7EB',
             range=[0, 100] if mode == 'percent' else None
         ),
         yaxis=dict(
             title="المادة",
-            tickfont=dict(size=12, family='Cairo'),
+            titlefont=dict(size=14, family='Cairo'),
+            tickfont=dict(size=13, family='Cairo'),
             autorange='reversed'
+        ),
+        # ✅ التعريف (Legend) محسّن
+        legend=dict(
+            title=dict(text="الفئات", font=dict(size=14, family='Cairo', color='#8A1538')),
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
+            font=dict(size=12, family='Cairo'),
+            bgcolor='rgba(255,255,255,0.9)',
+            bordercolor='#8A1538',
+            borderwidth=2
         ),
         barmode='stack',
         plot_bgcolor='white',
         paper_bgcolor='white',
         font=dict(family='Cairo'),
-        height=max(400, len(agg_df['subject'].unique()) * 40)
+        height=max(450, len(agg_df['subject'].unique()) * 50),
+        margin=dict(l=20, r=200, t=80, b=60)  # ✅ مساحة للتعريف
     )
     
     return fig
