@@ -495,6 +495,7 @@ def analyze_excel_file(
 ) -> List[Dict[str, Any]]:
     """
     تحليل محسّن لورقة Excel مع معالجة أخطاء أفضل
+    ✅ حل مشكلة تكرار الطلاب في نفس المادة
     
     Returns:
         List[Dict]: قائمة ببيانات الطلاب
@@ -592,23 +593,32 @@ def analyze_excel_file(
                 for reason in skipped_reasons[:10]:
                     st.text(f"  • {reason}")
         
-        # تحليل بيانات الطلاب
-        results = []
+        # ✅ تحليل بيانات الطلاب مع دمج الصفوف المكررة
+        student_data_dict = {}  # {student_name: {total, done, pending}}
         NOT_DUE = {'-', '—', '–', '', 'NAN', 'NONE'}
         
         students_count = 0
+        rows_processed = 0
+        
         for r in range(4, len(df)):
             student = df.iloc[r, 0]
             if pd.isna(student) or str(student).strip() == "":
                 continue
             
+            # تنظيف اسم الطالب
             name = " ".join(str(student).strip().split())
-            students_count += 1
+            rows_processed += 1
             
-            total = 0
-            done = 0
-            pending = []
+            # ✅ إنشاء مفتاح فريد للطالب (الاسم فقط، لأن المادة واحدة)
+            if name not in student_data_dict:
+                student_data_dict[name] = {
+                    'total': 0,
+                    'done': 0,
+                    'pending': []
+                }
+                students_count += 1
             
+            # معالجة التقييمات لهذا الصف
             for col in assessment_columns:
                 c = col['index']
                 title = col['title']
@@ -625,13 +635,21 @@ def analyze_excel_file(
                 
                 # M = مستحق غير منجز
                 if s == 'M':
-                    total += 1
-                    pending.append(title)
+                    student_data_dict[name]['total'] += 1
+                    if title not in student_data_dict[name]['pending']:
+                        student_data_dict[name]['pending'].append(title)
                     continue
                 
                 # أي قيمة أخرى = منجز
-                total += 1
-                done += 1
+                student_data_dict[name]['total'] += 1
+                student_data_dict[name]['done'] += 1
+        
+        # ✅ تحويل القاموس إلى قائمة نتائج
+        results = []
+        for name, data in student_data_dict.items():
+            total = data['total']
+            done = data['done']
+            pending = data['pending']
             
             if total == 0:
                 continue
@@ -650,8 +668,15 @@ def analyze_excel_file(
                 "sheet_name": sheet_name
             })
         
+        # رسائل المعلومات النهائية
         if results:
-            st.info(f"📊 تم تحليل {len(results)} طالب (من {students_count} في الورقة)")
+            if rows_processed > students_count:
+                st.info(
+                    f"📊 تم معالجة {rows_processed} صف، "
+                    f"دُمجت البيانات إلى {students_count} طالب فريد"
+                )
+            else:
+                st.info(f"📊 تم تحليل {len(results)} طالب")
         else:
             st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على طلاب بتقييمات مستحقة")
         
