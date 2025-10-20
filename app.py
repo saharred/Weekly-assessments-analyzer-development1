@@ -457,47 +457,47 @@ def make_student_pdf_fpdf(
         return bytes(out) if not isinstance(out, bytes) else out
 
 def parse_sheet_name(sheet_name: str):
-    """
-    استخراج معلومات الصف والشعبة من اسم الورقة
-    لم نعد نستخرج المادة - لأن كل ورقة تحتوي على جميع المواد في الأعمدة
-    """
+    """استخراج المادة والصف والشعبة من اسم الورقة"""
     try:
         parts = sheet_name.strip().split()
-        if len(parts) < 2:
-            return "", ""
+        if len(parts) < 3:
+            return sheet_name.strip(), "", ""
         
-        # نأخذ آخر رقمين: الصف والشعبة
-        section = parts[-1] if len(parts) > 1 else ""
-        level = parts[-2] if len(parts) > 1 else parts[-1]
+        section = parts[-1]
+        level = parts[-2]
+        subject = " ".join(parts[:-2])
         
-        # التحقق من أن المستوى رقم
         if not (level.isdigit() or (level.startswith('0') and len(level) <= 2)):
+            subject = " ".join(parts[:-1])
             level = parts[-1]
             section = ""
         
-        return level, section
+        return subject, level, section
     except Exception:
-        return "", ""
+        return sheet_name, "", ""
 
 @st.cache_data(ttl=3600, max_entries=10)
 def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end: Optional[date]=None):
     """
-    تحليل ورقة Excel - المنطق الجديد:
-    - كل ورقة تحتوي على جميع الطلاب
-    - الأعمدة تحتوي على مواد مختلفة (نقرأ اسم المادة من عنوان العمود)
-    - نُرجع طالب واحد مع جميع مواده
+    تحليل ورقة Excel واستخراج بيانات الطلاب
+    
+    المنطق:
+    - كل ورقة Excel = مادة واحدة (من اسم الورقة)
+    - الشرطة (-) = تقييم غير مستحق (لا يُحسب)
+    - M = تقييم مستحق غير منجز
+    - أي قيمة = تقييم منجز
     """
     try:
         df = pd.read_excel(file, sheet_name=sheet_name, header=None)
-        level_from_name, section_from_name = parse_sheet_name(sheet_name)
+        subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
 
         filter_active = (due_start is not None and due_end is not None)
         if filter_active and due_start > due_end:
             due_start, due_end = due_end, due_start
 
-        # ✅ تجميع الأعمدة حسب المادة
-        # نقرأ اسم المادة من الصف الأول لكل عمود
-        subject_columns = {}  # {subject_name: [column_indices]}
+        assessment_columns = []
+        skipped_reasons = []
+        columns_without_dates = 0
         
         for c in range(7, df.shape[1]):
             title = df.iloc[0, c] if c < df.shape[1] else None
@@ -507,19 +507,21 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
             t = str(title).strip()
             
             if not t or t in ['-', '—', '–', '_']:
+                skipped_reasons.append(f"عمود {c+1} - عنوان فارغ")
                 continue
 
-            # ✅ محاولة قراءة تاريخ الاستحقاق
             due_dt = None
             if filter_active:
                 due_cell = df.iloc[2, c] if 2 < df.shape[0] and c < df.shape[1] else None
                 due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
                 
-                if due_dt is not None:
+                if due_dt is None:
+                    columns_without_dates += 1
+                else:
                     if not in_range(due_dt, due_start, due_end):
+                        skipped_reasons.append(f"'{t}' - خارج النطاق ({due_dt})")
                         continue
 
-            # ✅ التحقق من وجود بيانات
             has_data = False
             for r in range(4, min(len(df), 50)):
                 if r >= df.shape[0] or c >= df.shape[1]:
@@ -532,110 +534,95 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
                         break
             
             if not has_data:
+                skipped_reasons.append(f"'{t}' - عمود فارغ بالكامل")
                 continue
 
-            # ✅ استخراج اسم المادة من عنوان العمود
-            # نفترض أن العنوان بصيغة: "اسم التقييم - المادة" أو "المادة: اسم التقييم"
-            subject_name = "عام"  # افتراضي
-            
-            # محاولة استخراج المادة من العنوان
-            if '-' in t:
-                parts = t.split('-')
-                if len(parts) > 1:
-                    subject_name = parts[0].strip()
-            elif ':' in t:
-                parts = t.split(':')
-                if len(parts) > 1:
-                    subject_name = parts[0].strip()
-            elif any(keyword in t for keyword in ['التربية', 'اللغة', 'الرياضيات', 'العلوم', 'الحوسبة']):
-                # محاولة استخراج المادة من الكلمات المفتاحية
-                for keyword in ['التربية الإسلامية', 'التربية البدنية', 'اللغة العربية', 
-                                'اللغة الإنجليزية', 'اللغة الانجليزية', 'الرياضيات', 
-                                'العلوم', 'الحوسبة وتكنولوجيا المعلومات', 'الحوسبة']:
-                    if keyword in t:
-                        subject_name = keyword
-                        break
-            
-            # إضافة العمود لمجموعة المادة
-            if subject_name not in subject_columns:
-                subject_columns[subject_name] = []
-            
-            subject_columns[subject_name].append({
-                'index': c,
-                'title': t,
-                'due_date': due_dt
+            assessment_columns.append({
+                'index': c, 
+                'title': t, 
+                'due_date': due_dt,
+                'has_date': due_dt is not None
             })
 
-        if not subject_columns:
+        if not assessment_columns:
             st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على أعمدة تقييم صالحة")
+            if skipped_reasons:
+                with st.expander(f"📋 الأعمدة المتجاهلة ({len(skipped_reasons)})"):
+                    for reason in skipped_reasons[:15]:
+                        st.text(f"  • {reason}")
             return []
         
-        st.success(f"✅ الورقة '{sheet_name}': وُجد {len(subject_columns)} مادة ({sum(len(cols) for cols in subject_columns.values())} عمود)")
+        cols_with_dates = sum(1 for c in assessment_columns if c['has_date'])
+        
+        info_msg = f"✅ الورقة '{sheet_name}': وُجد {len(assessment_columns)} عمود تقييم"
+        if filter_active and columns_without_dates > 0:
+            info_msg += f" ({cols_with_dates} بتاريخ، {columns_without_dates} بدون تاريخ)"
+        
+        st.success(info_msg)
+        
+        if skipped_reasons and len(skipped_reasons) > 0:
+            with st.expander(f"ℹ️ تم تجاهل {len(skipped_reasons)} عمود"):
+                for reason in skipped_reasons[:10]:
+                    st.text(f"  • {reason}")
 
-        # ✅ معالجة بيانات الطلاب
         results = []
         NOT_DUE = {'-', '—', '–', '', 'NAN', 'NONE'}
         
-        students_processed = set()
-        
+        students_count = 0
         for r in range(4, len(df)):
             student = df.iloc[r, 0]
             if pd.isna(student) or str(student).strip() == "":
                 continue
             
             name = " ".join(str(student).strip().split())
+            students_count += 1
+
+            total = 0
+            done = 0
+            pending = []
             
-            # ✅ تجنب معالجة نفس الطالب مرتين في نفس الورقة
-            student_key = (name, level_from_name, section_from_name)
-            if student_key in students_processed:
-                continue
-            students_processed.add(student_key)
-
-            # ✅ لكل مادة، نحسب الإحصائيات
-            for subject_name, columns in subject_columns.items():
-                total = 0
-                done = 0
-                pending = []
+            for col in assessment_columns:
+                c = col['index']
+                title = col['title']
                 
-                for col in columns:
-                    c = col['index']
-                    title = col['title']
-                    
-                    if c >= df.shape[1]:
-                        continue
-                    
-                    raw = df.iloc[r, c]
-                    s = "" if pd.isna(raw) else str(raw).strip().upper()
+                if c >= df.shape[1]:
+                    continue
+                
+                raw = df.iloc[r, c]
+                s = "" if pd.isna(raw) else str(raw).strip().upper()
 
-                    if s in NOT_DUE:
-                        continue
-                    
-                    if s == 'M':
-                        total += 1
-                        pending.append(title)
-                        continue
-                    
+                if s in NOT_DUE:
+                    continue
+                
+                if s == 'M':
                     total += 1
-                    done += 1
+                    pending.append(title)
+                    continue
+                
+                total += 1
+                done += 1
 
-                # ✅ فقط نضيف سجل إذا كان هناك تقييمات لهذه المادة
-                if total > 0:
-                    pct = (done / total * 100) if total > 0 else 0.0
-                    
-                    results.append({
-                        "student_name": name,
-                        "subject": subject_name,
-                        "level": str(level_from_name).strip(),
-                        "section": str(section_from_name).strip(),
-                        "solve_pct": round(pct, 1),
-                        "completed_count": int(done),
-                        "total_count": int(total),
-                        "pending_titles": ", ".join(pending) if pending else "-"
-                    })
+            if total == 0:
+                continue
+
+            pct = (done / total * 100) if total > 0 else 0.0
+            
+            results.append({
+                "student_name": name,
+                "subject": subject,
+                "level": str(level_from_name).strip(),
+                "section": str(section_from_name).strip(),
+                "solve_pct": round(pct, 1),
+                "completed_count": int(done),
+                "total_count": int(total),
+                "pending_titles": ", ".join(pending) if pending else "-",
+                "sheet_name": sheet_name  # ✅ إضافة اسم الورقة للتتبع
+            })
         
         if results:
-            unique_students = len(students_processed)
-            st.info(f"📊 تم تحليل {unique_students} طالب عبر {len(subject_columns)} مادة")
+            st.info(f"📊 تم تحليل {len(results)} طالب (من {students_count} في الورقة)")
+        else:
+            st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على طلاب بتقييمات مستحقة")
         
         return results
 
@@ -648,28 +635,63 @@ def analyze_excel_file(file, sheet_name, due_start: Optional[date]=None, due_end
 
 @st.cache_data
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    إنشاء جدول محوري من بيانات التحليل
+    
+    ✅ الحل الصحيح للتكرار:
+    - نجمع بيانات الطالب من جميع الأوراق (المواد)
+    - نتأكد من ظهور كل طالب مرة واحدة فقط
+    - ندمج المواد المتكررة (نأخذ آخر قيمة)
+    """
     try:
         if df.empty:
             return pd.DataFrame()
         
-        dfc = df.drop_duplicates(subset=['student_name', 'level', 'section', 'subject'], keep='last')
+        # ✅ خطوة 1: حذف التكرارات - نفس الطالب + نفس المادة
+        # keep='last' = نأخذ آخر قيمة (الأحدث)
+        dfc = df.drop_duplicates(
+            subset=['student_name', 'level', 'section', 'subject'], 
+            keep='last'
+        )
         
+        # ✅ خطوة 2: حذف الطلاب المكررين تماماً (نفس الطالب من نفس الورقة)
+        # نستخدم sheet_name إذا كان موجوداً
+        if 'sheet_name' in dfc.columns:
+            dfc = dfc.drop_duplicates(
+                subset=['student_name', 'level', 'section', 'sheet_name'],
+                keep='last'
+            )
+        
+        # ✅ خطوة 3: الطلاب الفريدين
         unique_students = dfc[['student_name', 'level', 'section']].drop_duplicates()
-        unique_students = unique_students.sort_values(['level', 'section', 'student_name']).reset_index(drop=True)
+        unique_students = unique_students.sort_values(
+            ['level', 'section', 'student_name']
+        ).reset_index(drop=True)
         
-        st.info(f"🔄 تم إيجاد {len(unique_students)} طالب فريد من {len(df)} سجل")
+        st.info(f"🔄 تم إيجاد {len(unique_students)} طالب فريد من {len(df)} سجل أولي")
         
         result = unique_students.copy()
         
         subjects = sorted(dfc['subject'].dropna().unique())
         st.info(f"📚 المواد المكتشفة: {', '.join(subjects)}")
         
+        # ✅ خطوة 4: لكل مادة، نضيف أعمدتها
         for subject in subjects:
             subject_data = dfc[dfc['subject'] == subject].copy()
             
-            subject_data[['total_count', 'completed_count', 'solve_pct']] = subject_data[['total_count', 'completed_count', 'solve_pct']].fillna(0)
+            # ✅ حذف التكرار داخل كل مادة (نفس الطالب + نفس المادة)
+            subject_data = subject_data.drop_duplicates(
+                subset=['student_name', 'level', 'section'],
+                keep='last'  # نأخذ آخر قيمة
+            )
             
-            subject_cols = subject_data[['student_name', 'level', 'section', 'total_count', 'completed_count', 'solve_pct']].copy()
+            subject_data[['total_count', 'completed_count', 'solve_pct']] = \
+                subject_data[['total_count', 'completed_count', 'solve_pct']].fillna(0)
+            
+            subject_cols = subject_data[[
+                'student_name', 'level', 'section', 
+                'total_count', 'completed_count', 'solve_pct'
+            ]].copy()
             
             subject_cols = subject_cols.rename(columns={
                 'total_count': f'{subject} - إجمالي',
@@ -677,15 +699,20 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
                 'solve_pct': f'{subject} - النسبة'
             })
             
-            subject_cols = subject_cols.drop_duplicates(subset=['student_name', 'level', 'section'], keep='last')
-            
-            result = result.merge(subject_cols, on=['student_name', 'level', 'section'], how='left')
+            result = result.merge(
+                subject_cols, 
+                on=['student_name', 'level', 'section'], 
+                how='left'
+            )
             
             pending_data = subject_data[['student_name', 'level', 'section', 'pending_titles']].copy()
             pending_data = pending_data.rename(columns={'pending_titles': f'{subject} - متبقي'})
-            pending_data = pending_data.drop_duplicates(subset=['student_name', 'level', 'section'], keep='last')
             
-            result = result.merge(pending_data, on=['student_name', 'level', 'section'], how='left')
+            result = result.merge(
+                pending_data, 
+                on=['student_name', 'level', 'section'], 
+                how='left'
+            )
 
         pct_cols = [c for c in result.columns if 'النسبة' in c]
         
@@ -713,7 +740,11 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
             
             result['الفئة'] = result['المتوسط'].apply(categorize)
 
-        result = result.rename(columns={'student_name': 'الطالب', 'level': 'الصف', 'section': 'الشعبة'})
+        result = result.rename(columns={
+            'student_name': 'الطالب',
+            'level': 'الصف',
+            'section': 'الشعبة'
+        })
         
         for c in result.columns:
             if ('إجمالي' in c) or ('منجز' in c):
@@ -723,12 +754,19 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
             elif 'متبقي' in c:
                 result[c] = result[c].fillna('-')
         
+        # ✅ خطوة 5: التأكد النهائي من عدم التكرار
         initial_count = len(result)
-        result = result.drop_duplicates(subset=['الطالب', 'الصف', 'الشعبة'], keep='first').reset_index(drop=True)
+        result = result.drop_duplicates(
+            subset=['الطالب', 'الصف', 'الشعبة'], 
+            keep='first'
+        ).reset_index(drop=True)
         final_count = len(result)
         
         if initial_count != final_count:
-            st.warning(f"⚠️ تم حذف {initial_count - final_count} صف مكرر. العدد النهائي: {final_count} طالب")
+            st.warning(
+                f"⚠️ تم حذف {initial_count - final_count} صف مكرر نهائياً. "
+                f"العدد النهائي: {final_count} طالب"
+            )
         
         st.success(f"✅ الجدول النهائي: {len(result)} طالب فريد")
         
