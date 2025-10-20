@@ -1,37 +1,4 @@
-def setup_app():
-    APP_TITLE = "إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم"
-
-    st.set_page_config(
-        page_title=APP_TITLE,
-        page_icon="https://i.imgur.com/XLef7tS.png",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("ingaz-app")
-
-    defaults = {
-        "analysis_results": None,
-        "pivot_table": None,
-        "font_info": None,
-        "logo_path": None,
-        "selected_sheets": [],
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-    if st.session_state.font_info is None:
-        st.session_state.font_info = prepare_default_font()
-
-    st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
-    * { font-family: 'Cairo','Segoe UI',-apple-system,sans-serif; direction: rtl; }
-    .main, body, .stApp { background:#fff; direction: rtl; }
-    
-    /* تثبيت الشريط الجانبي على اليمي# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import os, io, re, zipfile, logging, unicodedata
 from datetime import datetime, date
 from typing import Tuple, Optional, List
@@ -223,34 +190,49 @@ def setup_app():
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
-    * { font-family: 'Cairo','Segoe UI',-apple-system,sans-serif }
-    .main, body, .stApp { background:#fff; }
+    * { font-family: 'Cairo','Segoe UI',-apple-system,sans-serif; direction: rtl; }
+    .main, body, .stApp { background:#fff; direction: rtl; }
+    
+    section[data-testid="stSidebar"] {
+        right: 0 !important;
+        left: auto !important;
+    }
+    
+    .main .block-container {
+        padding-right: 5rem !important;
+        padding-left: 1rem !important;
+    }
+    
     .header-container{
-      background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
+      background:linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
       padding:44px 36px;color:#fff;text-align:center;margin-bottom:18px;
-      border-bottom:4px solid #C9A646;box-shadow:0 6px 20px rgba(138,21,56,.25);position:relative
+      border-bottom:4px solid #C9A646;box-shadow:0 6px 20px rgba(138,21,56,.25);position:relative;
+      direction: rtl;
     }
     .header-container::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
-      background:linear-gradient(90deg,#C9A646 0%,#E8D4A0 50%,#C9A646 100%)}
+      background:linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%)}
     .header-container h1{margin:0 0 6px 0;font-size:32px;font-weight:800}
     .header-container .subtitle{font-size:15px;font-weight:700;margin:0 0 4px}
     .header-container .accent-line{font-size:12px;color:#C9A646;font-weight:700;margin:0 0 6px}
     .header-container .description{font-size:12px;opacity:.95;margin:0}
 
     [data-testid="stSidebar"]{
-      background:linear-gradient(180deg,#8A1538 0%,#6B1029 100%)!important;
-      border-right:2px solid #C9A646;box-shadow:4px 0 16px rgba(0,0,0,.15)
+      background:linear-gradient(180deg, #8A1538 0%, #6B1029 100%)!important;
+      border-left:2px solid #C9A646;box-shadow:-4px 0 16px rgba(0,0,0,.15);
+      direction: rtl;
     }
     [data-testid="stSidebar"] *{ color:#fff !important; }
+    [data-testid="stSidebar"] > div:first-child { direction: rtl; }
 
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] textarea,
     [data-testid="stSidebar"] select {
       color:#000 !important; background:#fff !important; caret-color:#000 !important;
+      text-align: right;
     }
     [data-testid="stSidebar"] div[role="combobox"] input{ color:#000 !important; background:#fff !important; }
     [data-testid="stSidebar"] .stTextInput input,
-    [data-testid="stSidebar"] .stNumberInput input{ color:#000 !important; background:#fff !important; }
+    [data-testid="stSidebar"] .stNumberInput input{ color:#000 !important; background:#fff !important; text-align: right; }
     [data-testid="stSidebar"] ::placeholder{ color:#444 !important; opacity:1 !important; }
     [data-testid="stSidebar"] .stTextInput > div > div,
     [data-testid="stSidebar"] .stNumberInput > div > div{ border:1px solid rgba(0,0,0,.2) !important; box-shadow:none !important; }
@@ -259,15 +241,19 @@ def setup_app():
       border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
     .chart-title{font-size:20px;font-weight:800;color:#8A1538;text-align:center;margin-bottom:10px}
 
-    .footer{margin-top:22px;background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
+    .footer{margin-top:22px;background:linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
       color:#fff;border-radius:10px;padding:12px 10px;text-align:center;box-shadow:0 6px 18px rgba(138,21,56,.20);position:relative}
-    .footer .line{width:100%;height:3px;background:linear-gradient(90deg,#C9A646 0%,#E8D4A0 50%,#C9A646 100%);
+    .footer .line{width:100%;height:3px;background:linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
       position:absolute;top:0;left:0}
     .footer .school{font-weight:800;font-size:15px;margin:2px 0 4px}
     .footer .rights{font-weight:700;font-size:12px;margin:0 0 4px;opacity:.95}
     .footer .contact{font-size:12px;margin-top:2px}
     .footer a{color:#E8D4A0;font-weight:700;text-decoration:none;border-bottom:1px solid #C9A646}
     .footer .credit{margin-top:6px;font-size:11px;opacity:.85}
+    
+    .stRadio > div { direction: rtl; justify-content: flex-end; }
+    .stCheckbox > label { direction: rtl; }
+    .stSelectbox > div > div { direction: rtl; text-align: right; }
     </style>
     """, unsafe_allow_html=True)
 
