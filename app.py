@@ -44,10 +44,11 @@ CATEGORY_COLORS = {
     'ذهبي 🥈': '#C9A646',
     'فضي 🥉': '#C0C0C0',
     'برونزي': '#CD7F32',
-    'بحاجة لتحسين': '#8A1538'
+    'بحاجة لتحسين': '#FF9800',
+    'لا يستفيد': '#8A1538'
 }
 
-CATEGORY_ORDER = ['بلاتيني 🥇', 'ذهبي 🥈', 'فضي 🥉', 'برونزي', 'بحاجة لتحسين']
+CATEGORY_ORDER = ['بلاتيني 🥇', 'ذهبي 🥈', 'فضي 🥉', 'برونزي', 'بحاجة لتحسين', 'لا يستفيد']
 
 # إعداد Logging احترافي
 logging.basicConfig(
@@ -216,13 +217,59 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
         }
         
         def normalize_hamza(text):
-            """توحيد الهمزات والألفات"""
+            """توحيد الهمزات والألفات وتحويل للأحرف الصغيرة"""
+            text = str(text).lower().strip()
             text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
             text = text.replace("ة", "ه").replace("ـ", "")
             return text
         
-        # ✅ نمط 1: "أكتوبر 19" أو "19 أكتوبر"
-        # يدعم: "اكتوبر 19"، "19 اكتوبر"، "October 19"
+        # ✅ نمط 1: "Oct 2" أو "2 Oct" (إنجليزي مختصر)
+        pattern_short = r"([a-zA-Z]{3,})\s*[-/،,\s]*\s*(\d{1,2})"
+        match_short = re.search(pattern_short, s, re.IGNORECASE)
+        
+        if match_short:
+            month_name = match_short.group(1).strip().lower()
+            day = int(match_short.group(2))
+            
+            # البحث عن الشهر
+            month = arabic_months.get(month_name)
+            
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        pass
+        
+        # ✅ نمط 2: "2 Oct" (عكس)
+        pattern_short_reverse = r"(\d{1,2})\s*[-/،,\s]*\s*([a-zA-Z]{3,})"
+        match_short_rev = re.search(pattern_short_reverse, s, re.IGNORECASE)
+        
+        if match_short_rev:
+            day = int(match_short_rev.group(1))
+            month_name = match_short_rev.group(2).strip().lower()
+            
+            month = arabic_months.get(month_name)
+            
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        pass
+        
+        # ✅ نمط 3: "أكتوبر 19" أو "19 أكتوبر" (عربي)
+        # يدعم: "اكتوبر 19"، "19 اكتوبر"
         pattern1 = r"(\d{1,2})\s*[-/،,\s]*\s*([^\d\s]+)"
         match1 = re.search(pattern1, s)
         
@@ -230,16 +277,8 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             day = int(match1.group(1))
             month_name = match1.group(2).strip()
             
-            # البحث عن الشهر
-            month = arabic_months.get(month_name)
-            
-            if not month:
-                # محاولة مع تطبيع الهمزات
-                normalized_name = normalize_hamza(month_name)
-                for key, val in arabic_months.items():
-                    if normalize_hamza(key) == normalized_name:
-                        month = val
-                        break
+            # البحث عن الشهر مع تطبيع
+            month = arabic_months.get(normalize_hamza(month_name))
             
             if month:
                 try:
@@ -254,7 +293,7 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
                     except ValueError:
                         logger.warning(f"تاريخ غير صالح: {day}/{month}/{default_year}")
         
-        # ✅ نمط 2: "أكتوبر 19" (عكس)
+        # ✅ نمط 4: "أكتوبر 19" (عكس)
         pattern2 = r"([^\d\s]+)\s*[-/،,\s]*\s*(\d{1,2})"
         match2 = re.search(pattern2, s)
         
@@ -262,14 +301,7 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             month_name = match2.group(1).strip()
             day = int(match2.group(2))
             
-            month = arabic_months.get(month_name)
-            
-            if not month:
-                normalized_name = normalize_hamza(month_name)
-                for key, val in arabic_months.items():
-                    if normalize_hamza(key) == normalized_name:
-                        month = val
-                        break
+            month = arabic_months.get(normalize_hamza(month_name))
             
             if month:
                 try:
@@ -283,7 +315,7 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
                     except ValueError:
                         logger.warning(f"تاريخ غير صالح: {day}/{month}/{default_year}")
         
-        # ✅ نمط 3: محاولة pandas (للتواريخ الرقمية)
+        # ✅ نمط 5: محاولة pandas (للتواريخ الرقمية)
         try:
             parsed = pd.to_datetime(s, dayfirst=True, errors="coerce")
             if pd.notna(parsed):
@@ -768,10 +800,77 @@ def analyze_excel_file(
 
 # ============== دوال الجداول المحورية ==============
 
+def get_recommendation_by_category(category: str, student_name: str = "") -> str:
+    """
+    الحصول على التوصية المناسبة حسب فئة الطالب
+    
+    Args:
+        category: الفئة (بلاتيني، ذهبي، إلخ)
+        student_name: اسم الطالب (اختياري)
+    
+    Returns:
+        str: نص التوصية
+    """
+    recommendations = {
+        'بلاتيني 🥇': f"""🏆 الفئة البلاتينية (Platinum)
+
+عزيزي الطالب {student_name if student_name else ''}، نُقدّر لك تميزك البلاتيني وجهودك الكبيرة في متابعة التقييمات الأسبوعية عبر نظام قطر للتعليم. 
+
+استمر على هذا النهج الرائع، فأنت مثال يُحتذى به في الجد والاجتهاد. نتمنى لك دوام التوفيق والنجاح.
+
+✨ أنت نجم ساطع في سماء التميز!""",
+
+        'ذهبي 🥈': f"""🥇 الفئة الذهبية (Gold)
+
+طالبنا المتميز {student_name if student_name else ''}، نشكرك على أدائك الذهبي وإنجازاتك المشرّفة في التقييمات. 
+
+نحثك على الاستمرار وتفعيل نظام قطر للتعليم بانتظام لتصل إلى أعلى المراتب. أنت قادر على بلوغ القمة.
+
+💪 خطوة واحدة تفصلك عن البلاتين!""",
+
+        'فضي 🥉': f"""🥈 الفئة الفضية (Silver)
+
+نشكرك {student_name if student_name else ''} على اجتهادك الذي أهّلك للفئة الفضية. 
+
+نثق بقدرتك على الوصول لمستويات أعلى من خلال المزيد من التركيز وتفعيل نظام قطر للتعليم بصورة مستمرة. 
+
+📚 اجتهادك اليوم هو نجاحك غدًا.""",
+
+        'برونزي': f"""🥉 الفئة البرونزية (Bronze)
+
+طالبنا العزيز {student_name if student_name else ''}، نُقدّر جهدك الذي مكّنك من الوصول إلى الفئة البرونزية. 
+
+لديك القدرة على تحقيق إنجازات أكبر بالمتابعة الجادة وتفعيل نظام قطر للتعليم بانتظام. 
+
+🚀 استمر في المحاولة، فكل خطوة تقرّبك من التميز.""",
+
+        'بحاجة لتحسين': f"""⚠️ يحتاج إلى تحسين (Needs Improvement)
+
+نثق أن لديك {student_name if student_name else ''} إمكانيات كبيرة تحتاج فقط إلى مزيد من الالتزام. 
+
+نحثّك على الاستفادة من نظام قطر للتعليم والمتابعة المستمرة للتقييمات الأسبوعية. 
+
+💡 تذكّر أن بداية التميّز تكون بخطوة جادة نحو تحسين أدائك، ونحن على ثقة أنك قادر على ذلك.""",
+
+        'لا يستفيد': f"""🚫 لا يستفيد من النظام (Not Benefiting from the System)
+
+عزيزي الطالب {student_name if student_name else ''}، نلاحظ أنك لم تستفد بعد من نظام قطر للتعليم كما يجب. 
+
+ندعوك للبدء فورًا في تفعيل النظام والاستفادة من موارده، فهو وسيلتك الأساسية لتحقيق النجاح والتقدّم. 
+
+🤝 نحن هنا لدعمك وتشجيعك على الانطلاق. لا تتردد في طلب المساعدة!"""
+    }
+    
+    return recommendations.get(category, 
+        f"طالبنا العزيز {student_name if student_name else ''}، نشجعك على الاستمرار في المتابعة وتحقيق الأفضل."
+    )
+
 def categorize_performance(percent: float) -> str:
     """تصنيف الأداء بناءً على النسبة - نسخة محسّنة"""
-    if pd.isna(percent) or percent == 0:
-        return 'بحاجة لتحسين'
+    if pd.isna(percent):
+        return 'لا يستفيد'
+    elif percent == 0:
+        return 'لا يستفيد'
     elif percent >= 90:
         return 'بلاتيني 🥇'
     elif percent >= 80:
@@ -790,7 +889,8 @@ def categorize_vectorized(series: pd.Series) -> pd.Series:
         (series >= 80) & (series < 90),
         (series >= 70) & (series < 80),
         (series >= 60) & (series < 70),
-        series < 60
+        (series > 0) & (series < 60),
+        series == 0
     ]
     
     choices = [
@@ -798,11 +898,12 @@ def categorize_vectorized(series: pd.Series) -> pd.Series:
         'ذهبي 🥈',
         'فضي 🥉',
         'برونزي',
-        'بحاجة لتحسين'
+        'بحاجة لتحسين',
+        'لا يستفيد'
     ]
     
     return pd.Series(
-        np.select(conditions, choices, default='بحاجة لتحسين'),
+        np.select(conditions, choices, default='لا يستفيد'),
         index=series.index
     )
 
@@ -1692,14 +1793,38 @@ def main():
                 row = pivot[pivot['الطالب'] == sel].head(1)
                 g = str(row['الصف'].iloc[0]) if not row.empty and 'الصف' in row.columns else ''
                 s = str(row['الشعبة'].iloc[0]) if not row.empty and 'الشعبة' in row.columns else ''
+                
+                # ✅ الحصول على فئة الطالب
+                student_category = ''
+                if not row.empty and 'الفئة' in row.columns:
+                    student_category = row['الفئة'].iloc[0]
             
             with crec:
-                reco = st.text_area(
-                    "توصية منسق المشاريع",
-                    value="",
-                    height=120,
-                    placeholder="اكتب التوصيات هنا..."
+                # ✅ التوصية التلقائية حسب الفئة
+                auto_recommendation = get_recommendation_by_category(student_category, sel)
+                
+                # خيار: استخدام التوصية التلقائية أو كتابة مخصصة
+                use_auto = st.checkbox(
+                    "✨ استخدام التوصية التلقائية حسب الفئة",
+                    value=True,
+                    help="التوصية تُنشأ تلقائياً حسب فئة أداء الطالب"
                 )
+                
+                if use_auto:
+                    st.info(f"📋 **الفئة:** {student_category}")
+                    reco = st.text_area(
+                        "توصية منسق المشاريع (يمكنك التعديل)",
+                        value=auto_recommendation,
+                        height=200,
+                        help="يمكنك تعديل التوصية التلقائية حسب الحاجة"
+                    )
+                else:
+                    reco = st.text_area(
+                        "توصية منسق المشاريع (مخصصة)",
+                        value="",
+                        height=200,
+                        placeholder="اكتب التوصية المخصصة هنا..."
+                    )
             
             # بيانات الطالب
             sdata = pd.DataFrame()
@@ -1756,7 +1881,20 @@ def main():
             # تصدير جميع التقارير
             st.subheader("📦 تصدير جميع التقارير (ZIP)")
             
-            same_reco = st.checkbox("استخدم نفس التوصية لكل الطلاب", value=True)
+            col_zip1, col_zip2 = st.columns(2)
+            
+            with col_zip1:
+                use_auto_all = st.checkbox(
+                    "✨ توصيات تلقائية لكل طالب",
+                    value=True,
+                    help="كل طالب يحصل على توصية مخصصة حسب فئته"
+                )
+            
+            with col_zip2:
+                if not use_auto_all:
+                    same_reco = st.checkbox("استخدم نفس التوصية لكل الطلاب", value=True)
+                else:
+                    same_reco = False
             
             if st.button("إنشاء ملف ZIP لكل التقارير", type="primary"):
                 with st.spinner("جاري إنشاء حزمة التقارير..."):
@@ -1768,6 +1906,11 @@ def main():
                                 r = pivot[pivot['الطالب'] == stu].head(1)
                                 g = str(r['الصف'].iloc[0]) if not r.empty and 'الصف' in r.columns else ''
                                 s = str(r['الشعبة'].iloc[0]) if not r.empty and 'الشعبة' in r.columns else ''
+                                
+                                # ✅ الحصول على فئة الطالب للتوصية
+                                student_cat = ''
+                                if not r.empty and 'الفئة' in r.columns:
+                                    student_cat = r['الفئة'].iloc[0]
                                 
                                 sd = pd.DataFrame()
                                 if 'student_name' in df.columns:
@@ -1789,7 +1932,13 @@ def main():
                                         if pd.isna(av):
                                             av = 0.0
                                     
-                                    rtext = reco if same_reco else ""
+                                    # ✅ اختيار التوصية المناسبة
+                                    if use_auto_all:
+                                        rtext = get_recommendation_by_category(student_cat, stu)
+                                    elif same_reco:
+                                        rtext = reco
+                                    else:
+                                        rtext = ""
                                     
                                     pdfb = make_student_pdf_fpdf(
                                         school_name=school_name or "",
