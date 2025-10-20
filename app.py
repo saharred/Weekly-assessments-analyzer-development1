@@ -125,10 +125,10 @@ def _strip_invisible_and_diacritics(s: str) -> str:
     
     return s.strip()
 
-@safe_execute(default_return=None, error_message="خطأ في معالجة التاريخ")
 def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
     """
     معالجة محسّنة للتواريخ من خلايا Excel
+    ✅ يدعم: "2 أكتوبر"، "أكتوبر 19"، "19-10"، إلخ
     
     Args:
         cell: قيمة الخلية (قد تكون نص، رقم، تاريخ)
@@ -175,35 +175,93 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
         if not s:
             return None
         
-        # قاموس الأشهر العربية
+        # قاموس الأشهر العربية الموسع
         arabic_months = {
-            "يناير": 1, "كانون الثاني": 1, "جانفي": 1,
-            "فبراير": 2, "شباط": 2, "فيفري": 2,
-            "مارس": 3, "اذار": 3, "آذار": 3,
-            "ابريل": 4, "أبريل": 4, "نيسان": 4, "افريل": 4,
-            "مايو": 5, "ماي": 5, "ايار": 5, "أيار": 5,
-            "يونيو": 6, "يونيه": 6, "حزيران": 6, "جوان": 6,
-            "يوليو": 7, "يوليه": 7, "تموز": 7, "جويلية": 7,
-            "اغسطس": 8, "أغسطس": 8, "اب": 8, "آب": 8, "اوت": 8,
-            "سبتمبر": 9, "ايلول": 9, "أيلول": 9,
-            "اكتوبر": 10, "أكتوبر": 10, "تشرين الاول": 10, "تشرين الأول": 10,
-            "نوفمبر": 11, "تشرين الثاني": 11, "نونبر": 11,
-            "ديسمبر": 12, "كانون الاول": 12, "كانون الأول": 12, "دجنبر": 12,
+            # يناير
+            "يناير": 1, "كانون الثاني": 1, "جانفي": 1, "ينايرJanuary": 1,
+            "jan": 1, "january": 1, "يناير": 1,
+            # فبراير
+            "فبراير": 2, "شباط": 2, "فيفري": 2, "فبرايرFebruary": 2,
+            "feb": 2, "february": 2, "فبراير": 2,
+            # مارس
+            "مارس": 3, "اذار": 3, "آذار": 3, "مارسMarch": 3,
+            "mar": 3, "march": 3, "مارس": 3,
+            # أبريل
+            "ابريل": 4, "أبريل": 4, "نيسان": 4, "افريل": 4, "ابريلApril": 4,
+            "apr": 4, "april": 4, "ابريل": 4,
+            # مايو
+            "مايو": 5, "ماي": 5, "ايار": 5, "أيار": 5, "مايوMay": 5,
+            "may": 5, "مايو": 5,
+            # يونيو
+            "يونيو": 6, "يونيه": 6, "حزيران": 6, "جوان": 6, "يونيوJune": 6,
+            "jun": 6, "june": 6, "يونيو": 6,
+            # يوليو
+            "يوليو": 7, "يوليه": 7, "تموز": 7, "جويلية": 7, "يوليوJuly": 7,
+            "jul": 7, "july": 7, "يوليو": 7,
+            # أغسطس
+            "اغسطس": 8, "أغسطس": 8, "اب": 8, "آب": 8, "اوت": 8, "اغسطسAugust": 8,
+            "aug": 8, "august": 8, "اغسطس": 8,
+            # سبتمبر
+            "سبتمبر": 9, "ايلول": 9, "أيلول": 9, "سبتمبرSeptember": 9,
+            "sep": 9, "sept": 9, "september": 9, "سبتمبر": 9,
+            # أكتوبر
+            "اكتوبر": 10, "أكتوبر": 10, "تشرين الاول": 10, "تشرين الأول": 10, "اكتوبرOctober": 10,
+            "oct": 10, "october": 10, "اكتوبر": 10,
+            # نوفمبر
+            "نوفمبر": 11, "تشرين الثاني": 11, "نونبر": 11, "نوفمبرNovember": 11,
+            "nov": 11, "november": 11, "نوفمبر": 11,
+            # ديسمبر
+            "ديسمبر": 12, "كانون الاول": 12, "كانون الأول": 12, "دجنبر": 12, "ديسمبرDecember": 12,
+            "dec": 12, "december": 12, "ديسمبر": 12,
         }
         
         def normalize_hamza(text):
-            """توحيد الهمزات"""
-            return text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ـ", "")
+            """توحيد الهمزات والألفات"""
+            text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+            text = text.replace("ة", "ه").replace("ـ", "")
+            return text
         
-        # محاولة استخراج التاريخ من النمط: "15 يناير"
-        pattern = r"(\d{1,2})\s*[-/\s]*\s*([^\d\s]+)"
-        match = re.search(pattern, s)
+        # ✅ نمط 1: "أكتوبر 19" أو "19 أكتوبر"
+        # يدعم: "اكتوبر 19"، "19 اكتوبر"، "October 19"
+        pattern1 = r"(\d{1,2})\s*[-/،,\s]*\s*([^\d\s]+)"
+        match1 = re.search(pattern1, s)
         
-        if match:
-            day = int(match.group(1))
-            month_name = match.group(2).strip()
+        if match1:
+            day = int(match1.group(1))
+            month_name = match1.group(2).strip()
             
             # البحث عن الشهر
+            month = arabic_months.get(month_name)
+            
+            if not month:
+                # محاولة مع تطبيع الهمزات
+                normalized_name = normalize_hamza(month_name)
+                for key, val in arabic_months.items():
+                    if normalize_hamza(key) == normalized_name:
+                        month = val
+                        break
+            
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    # إذا كان اليوم غير صالح، استخدم يوم آمن
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        logger.warning(f"تاريخ غير صالح: {day}/{month}/{default_year}")
+        
+        # ✅ نمط 2: "أكتوبر 19" (عكس)
+        pattern2 = r"([^\d\s]+)\s*[-/،,\s]*\s*(\d{1,2})"
+        match2 = re.search(pattern2, s)
+        
+        if match2:
+            month_name = match2.group(1).strip()
+            day = int(match2.group(2))
+            
             month = arabic_months.get(month_name)
             
             if not month:
@@ -215,26 +273,33 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             
             if month:
                 try:
-                    return date(default_year, month, day)
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
                 except ValueError:
-                    # إذا كان اليوم غير صالح، استخدم يوم آمن
                     safe_day = min(day, 28)
                     try:
                         return date(default_year, month, safe_day)
                     except ValueError:
                         logger.warning(f"تاريخ غير صالح: {day}/{month}/{default_year}")
         
-        # محاولة pandas
-        parsed = pd.to_datetime(s, dayfirst=True, errors="coerce")
-        if pd.notna(parsed):
-            result_date = parsed.date()
-            if parsed.year < 1900:
-                result_date = result_date.replace(year=default_year)
-            return result_date
+        # ✅ نمط 3: محاولة pandas (للتواريخ الرقمية)
+        try:
+            parsed = pd.to_datetime(s, dayfirst=True, errors="coerce")
+            if pd.notna(parsed):
+                result_date = parsed.date()
+                if parsed.year < 1900:
+                    result_date = result_date.replace(year=default_year)
+                logger.debug(f"✅ تم تحليل التاريخ (pandas): '{s}' → {result_date}")
+                return result_date
+        except Exception:
+            pass
     
     except Exception as e:
         logger.warning(f"فشل في معالجة التاريخ '{cell}': {e}")
     
+    # إذا فشل كل شيء
+    logger.debug(f"⚠️ لم يتم التعرف على التاريخ: '{cell}'")
     return None
 
 def in_range(d: Optional[date], start: Optional[date], end: Optional[date]) -> bool:
@@ -530,8 +595,8 @@ def analyze_excel_file(
             
             t = str(title).strip()
             
-            # تجاهل الأعمدة الفارغة
-            if not t or t in ['-', '—', '–', '_']:
+            # تجاهل الأعمدة بعنوان فارغ فقط
+            if not t or t in ['_', 'Unnamed']:
                 skipped_reasons.append(f"عمود {c+1} - عنوان فارغ")
                 continue
             
@@ -548,22 +613,22 @@ def analyze_excel_file(
                         skipped_reasons.append(f"'{t}' - خارج النطاق ({due_dt})")
                         continue
             
-            # التحقق من وجود بيانات
-            has_data = False
+            # ✅ التحقق المحسّن: العمود صالح حتى لو كان كله "-"
+            # نتحقق فقط من أن العمود ليس فارغاً تماماً (NaN فقط)
+            has_any_value = False
             for r in range(4, min(len(df), 50)):
                 if r >= df.shape[0] or c >= df.shape[1]:
                     break
                 val = df.iloc[r, c]
-                if pd.notna(val):
-                    s = str(val).strip().upper()
-                    if s not in ['-', '—', '–', '', 'NAN', 'NONE']:
-                        has_data = True
-                        break
+                if pd.notna(val):  # ✅ أي قيمة (حتى "-") تعتبر صالحة
+                    has_any_value = True
+                    break
             
-            if not has_data:
-                skipped_reasons.append(f"'{t}' - عمود فارغ بالكامل")
+            if not has_any_value:
+                skipped_reasons.append(f"'{t}' - عمود فارغ تماماً (NaN)")
                 continue
             
+            # ✅ نضيف العمود حتى لو كان كله "-"
             assessment_columns.append({
                 'index': c,
                 'title': t,
@@ -583,10 +648,22 @@ def analyze_excel_file(
         cols_with_dates = sum(1 for c in assessment_columns if c['has_date'])
         
         info_msg = f"✅ الورقة '{sheet_name}': وُجد {len(assessment_columns)} عمود تقييم"
-        if filter_active and columns_without_dates > 0:
-            info_msg += f" ({cols_with_dates} بتاريخ، {columns_without_dates} بدون تاريخ)"
+        if filter_active:
+            info_msg += f" ({cols_with_dates} ضمن النطاق"
+            if columns_without_dates > 0:
+                info_msg += f"، {columns_without_dates} بدون تاريخ"
+            info_msg += ")"
         
         st.success(info_msg)
+        
+        # ✅ عرض التواريخ المكتشفة للتأكد
+        if filter_active and cols_with_dates > 0:
+            with st.expander(f"📅 التواريخ المكتشفة في '{sheet_name}'"):
+                for col in assessment_columns[:10]:  # عرض أول 10
+                    if col['has_date']:
+                        st.text(f"  ✅ {col['title']}: {col['due_date']}")
+                    else:
+                        st.text(f"  ⚠️ {col['title']}: لا يوجد تاريخ")
         
         if skipped_reasons and len(skipped_reasons) > 0:
             with st.expander(f"ℹ️ تم تجاهل {len(skipped_reasons)} عمود"):
