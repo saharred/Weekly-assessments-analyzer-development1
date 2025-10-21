@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-تطبيق إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم
-النسخة المحسّنة 2.1
+إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم
+النسخة 2.2 (هوية عنابية + تقارير وصفية/كمية + رسومات إضافية)
 """
 
 import os
@@ -30,40 +30,33 @@ try:
     AR_OK = True
 except ImportError:
     AR_OK = False
-    warnings.warn(
-        "⚠️ arabic_reshaper غير مثبت — للتثبيت: pip install arabic-reshaper python-bidi"
-    )
+    warnings.warn("⚠️ arabic_reshaper غير مثبت — pip install arabic-reshaper python-bidi")
 
 def rtl(text: str) -> str:
-    if not isinstance(text, str):
-        text = str(text)
+    if not isinstance(text, str): text = str(text)
     if AR_OK:
-        try:
-            return get_display(arabic_reshaper.reshape(text))
-        except Exception:
-            return text
+        try: return get_display(arabic_reshaper.reshape(text))
+        except Exception: return text
     return text
 
 # ================== ثوابت وهوية ==================
-QATAR_MAROON = (138, 21, 56)
-QATAR_GOLD = (201, 166, 70)
+QATAR_MAROON = (138, 21, 56)       # RGB
+QATAR_GOLD   = (201, 166, 70)
 
 CATEGORY_COLORS = {
     'بلاتيني 🥇': '#E5E4E2',
-    'ذهبي 🥈': '#C9A646',
-    'فضي 🥉': '#C0C0C0',
-    'برونزي': '#CD7F32',
+    'ذهبي 🥈'   : '#C9A646',
+    'فضي 🥉'    : '#C0C0C0',
+    'برونزي'    : '#CD7F32',
     'بحاجة لتحسين': '#FF9800',
-    'لا يستفيد': '#8A1538'
+    'لا يستفيد' : '#8A1538'
 }
 CATEGORY_ORDER = ['بلاتيني 🥇', 'ذهبي 🥈', 'فضي 🥉', 'برونزي', 'بحاجة لتحسين', 'لا يستفيد']
 
 # ================== لوجينغ ==================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[logging.StreamHandler()])
 logger = logging.getLogger("ingaz-app")
 
 def log_performance(func):
@@ -85,30 +78,25 @@ def safe_execute(default_return=None, error_message="حدث خطأ"):
     def deco(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
+            try: return func(*args, **kwargs)
             except Exception as e:
                 logger.error(f"{error_message} في {func.__name__}: {e}")
-                if st:
-                    st.error(f"{error_message}: {e}")
+                if st: st.error(f"{error_message}: {e}")
                 return default_return
         return wrapper
     return deco
 
 # ================== أدوات نص/أرقام ==================
 def _normalize_arabic_digits(s: str) -> str:
-    if not isinstance(s, str):
-        return str(s) if s is not None else ""
+    if not isinstance(s, str): return str(s) if s is not None else ""
     return s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
 
 def _strip_invisible_and_diacritics(s: str) -> str:
-    if not isinstance(s, str):
-        return ""
+    if not isinstance(s, str): return ""
     invis = ['\u200e','\u200f','\u202a','\u202b','\u202c','\u202d','\u202e',
              '\u2066','\u2067','\u2068','\u2069','\u200b','\u200c','\u200d',
              '\ufeff','\xa0','\u0640']
-    for ch in invis:
-        s = s.replace(ch, '')
+    for ch in invis: s = s.replace(ch, '')
     s = ''.join(c for c in s if not unicodedata.combining(c))
     s = ' '.join(s.split())
     return s.strip()
@@ -133,30 +121,22 @@ _EN_MONTHS = {k: v for k, v in {
 
 # ================== تواريخ ==================
 def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
-    if default_year is None:
-        default_year = date.today().year
-    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
-        return None
+    if default_year is None: default_year = date.today().year
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)): return None
     if isinstance(cell, (pd.Timestamp, datetime)):
-        try:
-            return cell.date() if hasattr(cell, 'date') else cell
-        except Exception:
-            return None
+        try: return cell.date() if hasattr(cell, 'date') else cell
+        except Exception: return None
     if isinstance(cell, (int, float)) and not pd.isna(cell):
         try:
             if 1 <= cell <= 100000:
                 base = pd.to_datetime("1899-12-30")
                 result = base + pd.to_timedelta(float(cell), unit="D")
-                if 1900 <= result.year <= 2200:
-                    return result.date()
-        except Exception:
-            pass
+                if 1900 <= result.year <= 2200: return result.date()
+        except Exception: pass
     try:
         s = str(cell).strip()
-        if not s or s.lower() in ['nan','none','nat','null']:
-            return None
+        if not s or s.lower() in ['nan','none','nat','null']: return None
         s_clean = _strip_invisible_and_diacritics(_normalize_arabic_digits(s))
-        # EN: "Oct 2" / "2 Oct"
         m1 = re.search(r"([a-zA-Z]{3,})\s*[-/،,\s]*\s*(\d{1,2})", s_clean, re.IGNORECASE)
         if m1:
             m = _EN_MONTHS.get(m1.group(1).lower()); d = int(m1.group(2))
@@ -169,7 +149,6 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             if m:
                 try: return date(default_year, m, d)
                 except: return date(default_year, m, min(d, 28))
-        # AR: "19 أكتوبر" / "أكتوبر 19"
         m3 = re.search(r"(\d{1,2})\s*[-/،,\s]*\s*([^\d\s]+)", s_clean)
         if m3:
             d = int(m3.group(1)); m = _AR_MONTHS.get(_norm_month_key(m3.group(2)))
@@ -187,29 +166,21 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             d = parsed.date()
             if parsed.year < 1900: d = d.replace(year=default_year)
             return d
-    except Exception:
-        pass
+    except Exception: pass
     return None
 
 def in_range(d: Optional[date], start: Optional[date], end: Optional[date]) -> bool:
-    if not (start and end):
-        return True
-    if d is None:
-        return False
-    if start > end:
-        start, end = end, start
+    if not (start and end): return True
+    if d is None: return False
+    if start > end: start, end = end, start
     return start <= d <= end
 
 # ================== تحقق بنية ==================
 def validate_excel_structure(df: pd.DataFrame, sheet_name: str) -> Tuple[bool, str]:
-    if df is None or df.empty:
-        return False, "الملف فارغ"
-    if df.shape[0] < 4:
-        return False, f"عدد الصفوف قليل جداً ({df.shape[0]} صف)"
-    if df.shape[1] < 8:
-        return False, f"عدد الأعمدة قليل جداً ({df.shape[1]} عمود)"
-    if len(df.iloc[4:, 0].dropna()) == 0:
-        return False, "لا توجد أسماء طلاب في العمود الأول"
+    if df is None or df.empty: return False, "الملف فارغ"
+    if df.shape[0] < 4: return False, f"عدد الصفوف قليل جداً ({df.shape[0]} صف)"
+    if df.shape[1] < 8: return False, f"عدد الأعمدة قليل جداً ({df.shape[1]} عمود)"
+    if len(df.iloc[4:, 0].dropna()) == 0: return False, "لا توجد أسماء طلاب في العمود الأول"
     return True, ""
 
 # ================== واجهة ==================
@@ -217,13 +188,16 @@ def setup_app():
     APP_TITLE = "إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم"
     st.set_page_config(page_title=APP_TITLE, page_icon="https://i.imgur.com/XLef7tS.png",
                        layout="wide", initial_sidebar_state="expanded")
-    defaults = {"analysis_results": None, "pivot_table": None, "font_info": None,
-                "logo_path": None, "selected_sheets": [], "analysis_stats": {}}
+    defaults = {
+        "analysis_results": None, "pivot_table": None, "font_info": None,
+        "logo_path": None, "selected_sheets": [], "analysis_stats": {}
+    }
     for k,v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
     if st.session_state.font_info is None:
         st.session_state.font_info = prepare_default_font()
-    apply_custom_styles(); render_header(APP_TITLE)
+    apply_custom_styles()
+    render_header(APP_TITLE)
 
 def apply_custom_styles():
     st.markdown("""
@@ -232,16 +206,27 @@ def apply_custom_styles():
     *{font-family:'Cairo','Segoe UI',-apple-system,sans-serif;direction:rtl}
     .main,body,.stApp{background:#fff;direction:rtl}
     section[data-testid="stSidebar"]{right:0!important;left:auto!important}
-    .main .block-container{padding-right:5rem!important;padding-left:1rem!important}
-    .header-container{background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
-      padding:44px 36px;color:#fff;text-align:center;margin-bottom:18px;
+    .main .block-container{padding-right:4.5rem!important;padding-left:1rem!important}
+    /* Header */
+    .header-container{
+      background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
+      padding:36px 28px;color:#fff;text-align:center;margin-bottom:18px;
       border-bottom:4px solid #C9A646;box-shadow:0 6px 20px rgba(138,21,56,.25);position:relative}
     .header-container::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
       background:linear-gradient(90deg,#C9A646 0%,#E8D4A0 50%,#C9A646 100%)}
-    .header-container h1{margin:0 0 6px 0;font-size:32px;font-weight:800}
-    .chart-container{background:#fff;border:2px solid #E5E7EB;border-right:5px solid #8A1538;
-      border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+    .header-container h1{margin:0 0 6px 0;font-size:30px;font-weight:800;letter-spacing:.2px}
+    .header-sub{font-size:15px;font-weight:700;color:#EADAA9;margin-top:4px}
+    /* Cards/Charts */
+    .chart-container{background:#fff;border:2px solid #E9E9EE;border-right:6px solid #8A1538;
+      border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 2px 10px rgba(0,0,0,.07)}
     .chart-title{font-size:20px;font-weight:800;color:#8A1538;text-align:center;margin-bottom:10px}
+    /* Sidebar */
+    [data-testid="stSidebar"]{
+      background:linear-gradient(180deg,#8A1538 0%,#6B1029 100%)!important;
+      border-left:2px solid #C9A646;box-shadow:-4px 0 16px rgba(0,0,0,.15)}
+    [data-testid="stSidebar"] *{color:#fff!important}
+    [data-testid="stSidebar"] input,[data-testid="stSidebar"] textarea,[data-testid="stSidebar"] select{
+      color:#000!important;background:#fff!important;text-align:right}
     .stProgress > div > div{background:#8A1538!important}
     </style>
     """, unsafe_allow_html=True)
@@ -250,8 +235,8 @@ def render_header(title: str):
     st.markdown(f"""
     <div class='header-container'>
       <h1>{title}</h1>
-      <p class='subtitle'>لوحة مهنية لقياس التقدم وتحليل النتائج - النسخة 2.1</p>
-      <p class='description'>المنطق: '-' غير مستحق | M متبقي | القيمة = منجز</p>
+      <div class='header-sub'>نحو تنمية رقمية مستدامة</div>
+      <div style="font-size:12px;opacity:.95;margin-top:6px;">المنطق: '-' غير مستحق | M متبقي | القيمة = منجز</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -325,8 +310,7 @@ def analyze_excel_file(file, sheet_name: str,
             if filter_active:
                 due_cell = df.iloc[2, c] if 2 < df.shape[0] and c < df.shape[1] else None
                 due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
-                if due_dt is None:
-                    no_date_cols += 1
+                if due_dt is None: no_date_cols += 1
                 elif not in_range(due_dt, due_start, due_end):
                     skipped.append(f"'{t}' - خارج النطاق ({due_dt})"); continue
             has_any = False
@@ -343,12 +327,6 @@ def analyze_excel_file(file, sheet_name: str,
                 with st.expander(f"📋 الأعمدة المتجاهلة ({len(skipped)})"):
                     for r in skipped[:15]: st.text("• "+r)
             return []
-
-        cols_with_dates = sum(1 for c in assessment_columns if c['has_date'])
-        msg = f"✅ '{sheet_name}': {len(assessment_columns)} عمود"
-        if filter_active:
-            msg += f" ({cols_with_dates} ضمن النطاق" + (f"، {no_date_cols} بدون تاريخ" if no_date_cols>0 else "") + ")"
-        st.success(msg)
 
         student_data, NOT_DUE = {}, {'-','—','–','','NAN','NONE','_'}
         students_count = rows_processed = 0
@@ -389,10 +367,8 @@ def analyze_excel_file(file, sheet_name: str,
                 "sheet_name": sheet_name
             })
 
-        if results:
-            st.info(f"📊 تمت معالجة {rows_processed} صف ودُمجت إلى {students_count} طالب")
-        else:
-            st.warning(f"⚠️ '{sheet_name}': لا طلاب بتقييمات مستحقة")
+        if results: st.info(f"📊 تمت معالجة {rows_processed} صف ودُمجت إلى {students_count} طالب")
+        else:      st.warning(f"⚠️ '{sheet_name}': لا طلاب بتقييمات مستحقة")
         return results
 
     except Exception as e:
@@ -410,7 +386,7 @@ def categorize_vectorized(series: pd.Series) -> pd.Series:
 
 def _canonicalize_level_section(dfc: pd.DataFrame) -> pd.DataFrame:
     """يوحد الصف/الشعبة لكل طالب على الأكثر شيوعًا، لمنع صف مزدوج لنفس الطالب"""
-    dfc['level'] = dfc['level'].astype(str).map(_normalize_arabic_digits).str.strip()
+    dfc['level']   = dfc['level'].astype(str).map(_normalize_arabic_digits).str.strip()
     dfc['section'] = dfc['section'].astype(str).apply(_strip_invisible_and_diacritics).str.strip()
     def most_common(series: pd.Series):
         s = series.replace('', np.nan).dropna()
@@ -418,27 +394,23 @@ def _canonicalize_level_section(dfc: pd.DataFrame) -> pd.DataFrame:
     canon = dfc.groupby('student_name').agg(_level=('level', most_common),
                                             _section=('section', most_common)).reset_index()
     dfc = dfc.merge(canon, on='student_name', how='left')
-    dfc['level'] = np.where(dfc['level'].eq('')|dfc['level'].isna(), dfc['_level'], dfc['level'])
-    dfc['section'] = np.where(dfc['section'].eq('')|dfc['section'].isna(), dfc['_section'], dfc['section'])
+    dfc['level']   = np.where(dfc['level'].eq('')  | dfc['level'].isna(),   dfc['_level'],   dfc['level'])
+    dfc['section'] = np.where(dfc['section'].eq('')| dfc['section'].isna(), dfc['_section'], dfc['section'])
     return dfc.drop(columns=['_level','_section'])
 
 @st.cache_data(show_spinner=False)
 @log_performance
 def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
     try:
-        if df is None or df.empty:
-            return pd.DataFrame()
-        logger.info(f"🔄 معالجة {len(df)} سجل")
+        if df is None or df.empty: return pd.DataFrame()
         dfc = df.drop_duplicates(subset=['student_name','level','section','subject'], keep='last')
         dfc = _canonicalize_level_section(dfc)
 
         unique_students = dfc[['student_name','level','section']].drop_duplicates()
         unique_students = unique_students.sort_values(['level','section','student_name']).reset_index(drop=True)
-        st.info(f"👥 عدد الطلاب الفريدين: {len(unique_students)}")
 
         result = unique_students.copy()
         subjects = sorted(dfc['subject'].dropna().unique())
-        st.info(f"📚 المواد ({len(subjects)}): {', '.join(subjects)}")
 
         for subject in subjects:
             sd = dfc[dfc['subject']==subject].copy()
@@ -458,7 +430,7 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
                 vals = row[pct_cols].dropna()
                 return float(vals.mean()) if len(vals)>0 else 0.0
             result['المتوسط'] = result.apply(calc_avg, axis=1).round(1)
-            result['الفئة'] = categorize_vectorized(result['المتوسط'])
+            result['الفئة']    = categorize_vectorized(result['المتوسط'])
 
         result = result.rename(columns={'student_name':'الطالب','level':'الصف','section':'الشعبة'})
 
@@ -468,7 +440,6 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
             elif 'متبقي' in c: result[c] = result[c].fillna('-')
 
         result = result.drop_duplicates(subset=['الطالب','الصف','الشعبة'], keep='first').reset_index(drop=True)
-        logger.info(f"✅ Pivot: {len(result)} × {len(result.columns)}")
         return result
     except Exception as e:
         logger.error(f"pivot error: {e}")
@@ -477,42 +448,79 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
 # ============== تحليلات إضافية ==============
+def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if 'solve_pct' in out.columns: out = out.rename(columns={'solve_pct':'percent'})
+    if 'student_name' in out.columns: out = out.rename(columns={'student_name':'student'})
+    if 'percent' in out.columns: out['category'] = categorize_vectorized(out['percent'])
+    return out
 
-def subject_completion_summary(df: pd.DataFrame, section: Optional[str]=None) -> pd.DataFrame:
-    """نسبة الحل العامة لكل مادة، مع عدّ الطلاب"""
+def aggregate_by_subject(df_norm: pd.DataFrame) -> pd.DataFrame:
+    """يرجع جدول (subject x category) مع النسب للـ stacked bar"""
+    if df_norm.empty: return pd.DataFrame()
+    rows = []
+    for s in df_norm['subject'].dropna().unique():
+        sub = df_norm[df_norm['subject'] == s]
+        n = len(sub)
+        for cat in CATEGORY_ORDER:
+            cnt = (sub['category'] == cat).sum() if 'category' in sub.columns else 0
+            pct = (cnt / n * 100) if n > 0 else 0.0
+            rows.append({'subject': s, 'category': cat, 'count': int(cnt), 'percent_share': round(pct, 1)})
+    agg = pd.DataFrame(rows)
+    if agg.empty: return agg
+    order = agg.groupby('subject')['percent_share'].sum().sort_values(ascending=False).index.tolist()
+    agg['subject'] = pd.Categorical(agg['subject'], categories=order, ordered=True)
+    return agg.sort_values('subject')
+
+def subject_completion_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """متوسط solve_pct لكل مادة"""
     if df is None or df.empty: return pd.DataFrame()
-    data = df.copy()
-    if section:
-        # فلترة على الشعبة
-        data = data[data['section'].astype(str).str.strip()==str(section).strip()]
-    g = data.groupby('subject', dropna=True)
-    out = g.agg(
-        متوسط_النسبة=('solve_pct', lambda s: round(float(np.nanmean(s)) if len(s)>0 else 0.0, 1)),
-        عدد_الطلاب=('student_name','nunique')
-    ).reset_index().rename(columns={'subject':'المادة'})
+    g = df.groupby('subject', dropna=True)
+    out = g.agg(متوسط_النسبة=('solve_pct', lambda s: round(float(np.nanmean(s)) if len(s)>0 else 0.0, 1)),
+                عدد_الطلاب=('student_name','nunique')).reset_index().rename(columns={'subject':'المادة'})
     return out.sort_values('متوسط_النسبة', ascending=False)
 
 def section_completion_summary(df: pd.DataFrame) -> pd.DataFrame:
     """متوسط الإنجاز لكل شعبة (جميع المواد)"""
     if df is None or df.empty: return pd.DataFrame()
-    # نحسب متوسط solve_pct للطالب أولاً ثم نأخذ متوسط الشعب
-    per_student = df.groupby(['student_name','section'], as_index=False).agg(النسبة=('solve_pct', lambda s: float(np.nanmean(s)) if len(s)>0 else 0.0))
-    out = per_student.groupby('section', as_index=False).agg(متوسط_الشعبة=('النسبة', lambda s: round(float(np.nanmean(s)),1)))
+    per_student = df.groupby(['student_name','section'], as_index=False)\
+                    .agg(النسبة=('solve_pct', lambda s: float(np.nanmean(s)) if len(s)>0 else 0.0))
+    out = per_student.groupby('section', as_index=False)\
+                     .agg(متوسط_الشعبة=('النسبة', lambda s: round(float(np.nanmean(s)),1)))
     out = out.rename(columns={'section':'الشعبة'}).sort_values('متوسط_الشعبة', ascending=False)
     return out
 
-# ============== رسوم بيانية جديدة ==============
+# ============== رسوم بيانية ==============
+def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
+    """توزيع الفئات حسب المادة (رجعناه)"""
+    fig = go.Figure()
+    colors = [CATEGORY_COLORS[c] for c in CATEGORY_ORDER]
+    for i, cat in enumerate(CATEGORY_ORDER):
+        d = agg_df[agg_df['category'] == cat]
+        vals = d['percent_share'] if mode == 'percent' else d['count']
+        text = [(f"{v:.1f}%" if mode == 'percent' else str(int(v))) if v > 0 else "" for v in vals]
+        hover = "<b>%{y}</b><br>الفئة: " + cat + "<br>" + ("النسبة: %{x:.1f}%<extra></extra>" if mode == 'percent' else "العدد: %{x}<extra></extra>")
+        fig.add_trace(go.Bar(
+            name=cat, x=vals, y=d['subject'], orientation='h',
+            marker=dict(color=colors[i], line=dict(color='white', width=1)),
+            text=text, textposition='inside', textfont=dict(size=11, family='Cairo'),
+            hovertemplate=hover
+        ))
+    fig.update_layout(
+        title=dict(text="توزيع الفئات حسب المادة", font=dict(size=20, family='Cairo', color='#8A1538'), x=0.5),
+        xaxis=dict(title="النسبة المئوية (%)" if mode=='percent' else "عدد الطلاب", gridcolor='#E5E7EB', range=[0,100] if mode=='percent' else None),
+        yaxis=dict(title="المادة", autorange='reversed'),
+        barmode='stack', plot_bgcolor='white', paper_bgcolor='white', font=dict(family='Cairo'),
+        height=480
+    )
+    return fig
 
-def chart_subject_completion_table_bar(df_subject: pd.DataFrame) -> go.Figure:
-    """شريط أفقي لِمتوسط إنجاز كل مادة"""
-    if df_subject.empty: return go.Figure()
+def chart_subject_completion_bar(tbl: pd.DataFrame) -> go.Figure:
+    if tbl.empty: return go.Figure()
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        y=df_subject['المادة'],
-        x=df_subject['متوسط_النسبة'],
-        orientation='h',
-        text=[f"{v:.1f}%" for v in df_subject['متوسط_النسبة']],
-        textposition='inside',
+        y=tbl['المادة'], x=tbl['متوسط_النسبة'], orientation='h',
+        text=[f"{v:.1f}%" for v in tbl['متوسط_النسبة']], textposition='inside',
         marker=dict(color='#8A1538', line=dict(color='white', width=1))
     ))
     fig.update_layout(
@@ -520,17 +528,15 @@ def chart_subject_completion_table_bar(df_subject: pd.DataFrame) -> go.Figure:
         xaxis=dict(range=[0,100], title="النسبة (%)", gridcolor='#E5E7EB'),
         yaxis=dict(autorange='reversed', title="المادة"),
         plot_bgcolor='white', paper_bgcolor='white', font=dict(family='Cairo'),
-        height=max(380, len(df_subject)*36)
+        height=max(380, len(tbl)*36)
     )
     return fig
 
 def chart_section_avg_bar(df_section: pd.DataFrame) -> go.Figure:
-    """متوسط الإنجاز على مستوى الشعب"""
     if df_section.empty: return go.Figure()
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=df_section['الشعبة'],
-        y=df_section['متوسط_الشعبة'],
+        x=df_section['الشعبة'], y=df_section['متوسط_الشعبة'],
         text=[f"{v:.1f}%" for v in df_section['متوسط_الشعبة']],
         textposition='outside',
         marker=dict(color='#C9A646', line=dict(color='white', width=1))
@@ -544,6 +550,46 @@ def chart_section_avg_bar(df_section: pd.DataFrame) -> go.Figure:
     )
     return fig
 
+# ============== تقارير وصفية/كمية ==============
+def _strengths_weaknesses(avg: float) -> Tuple[str, str]:
+    if avg >= 85: return "التزام مرتفع – إنجاز مستقر", "ضرورة تثبيت المستوى والمتابعة"
+    if avg >= 70: return "تفاعل جيد – إمكانات قوية", "تذبذب في بعض المهام"
+    if avg >= 50: return "تحسن ملحوظ عند المتابعة", "ضعف الالتزام بالمواعيد"
+    return "وجود نماذج متميزة فردية", "انخفاض عام في الإنجاز"
+
+def recommendations_pack() -> List[str]:
+    return [
+        "تصميم مسابقات تحفيزية قصيرة داخل الحصة.",
+        "فتح نظام قطر داخل الصف ومتابعة الحل المباشر.",
+        "التواصل مع ولي الأمر للطلاب منخفضي الإنجاز.",
+        "تخصيص حصص دعم للمفاهيم الحرجة.",
+    ]
+
+def report_per_subject(df: pd.DataFrame) -> pd.DataFrame:
+    """تقرير وصفي/كمي لكل مادة"""
+    if df.empty: return pd.DataFrame()
+    g = df.groupby('subject', as_index=False).agg(
+        متوسط=('solve_pct', lambda s: round(float(np.nanmean(s)),1)),
+        طلاب=('student_name','nunique')
+    )
+    # نقاط القوة/الضعف
+    g['قوة'], g['ضعف'] = zip(*g['متوسط'].map(_strengths_weaknesses))
+    g['توصيات'] = " • " + " | ".join(recommendations_pack())
+    return g.rename(columns={'subject':'المادة'})
+
+def report_per_section_subject(df: pd.DataFrame) -> pd.DataFrame:
+    """تقرير وصفي/كمي لكل شعبة × مادة (مثل العربية 03/1)"""
+    if df.empty: return pd.DataFrame()
+    g = df.groupby(['section','subject'], as_index=False).agg(
+        متوسط=('solve_pct', lambda s: round(float(np.nanmean(s)),1)),
+        طلاب=('student_name','nunique')
+    ).rename(columns={'section':'الشعبة','subject':'المادة'})
+    g['قوة'], g['ضعف'] = zip(*g['متوسط'].map(_strengths_weaknesses))
+    g['توصيات'] = " • " + " | ".join(recommendations_pack())
+    # ترتيب جميل: حسب الشعبة ثم المتوسط تنازلي
+    g = g.sort_values(['الشعبة','متوسط'], ascending=[True, False]).reset_index(drop=True)
+    return g
+
 # ============== PDF ==============
 @safe_execute(default_return=b"", error_message="خطأ في إنشاء PDF")
 def make_student_pdf_fpdf(
@@ -554,41 +600,38 @@ def make_student_pdf_fpdf(
 ) -> bytes:
     font_name, font_path = font_info
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=15)  # ✅ مهم لمنع خطأ المساحة
+    pdf.set_auto_page_break(auto=True, margin=15)   # ✅ لمنع خطأ المساحة
     pdf.add_page()
 
     if font_path and os.path.exists(font_path):
-        try:
-            pdf.add_font(font_name, "", font_path, uni=True)
-        except Exception as e:
-            logger.warning(f"خط: {e}"); font_name = ""
+        try: pdf.add_font(font_name, "", font_path, uni=True)
+        except Exception as e: logger.warning(f"خط: {e}"); font_name = ""
 
     def set_font(size=12, color=(0,0,0)):
         if font_name: pdf.set_font(font_name, size=size)
         else: pdf.set_font("Helvetica", size=size)
         pdf.set_text_color(*color)
 
-    pdf.set_fill_color(*QATAR_MAROON); pdf.rect(0, 0, 210, 20, style="F")
+    # Header
+    pdf.set_fill_color(*QATAR_MAROON); pdf.rect(0, 0, 210, 22, style="F")
     if logo_path and os.path.exists(logo_path):
         try: pdf.image(logo_path, x=185, y=2.5, w=20)
         except Exception as e: logger.warning(f"شعار: {e}")
 
-    set_font(14, (255,255,255)); pdf.set_xy(10,7)
-    pdf.cell(0, 8, rtl("إنجاز - تقرير أداء الطالب"), align="R")
+    set_font(14, (255,255,255)); pdf.set_xy(10,6)
+    pdf.cell(0, 7, rtl("إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم"), align="R")
+    set_font(11, (234, 218, 169)); pdf.set_xy(10, 13)
+    pdf.cell(0, 7, rtl("نحو تنمية رقمية مستدامة"), align="R")
 
-    set_font(18, QATAR_MAROON); pdf.set_y(28)
-    pdf.cell(0, 10, rtl("تقرير أداء الطالب - نظام قطر للتعليم"), ln=1, align="R")
-    pdf.set_draw_color(*QATAR_GOLD); pdf.set_line_width(0.6); pdf.line(30,38,200,38)
-
-    set_font(12); pdf.ln(6)
+    # بيانات عامة
+    set_font(12); pdf.set_y(28)
     pdf.cell(0,8, rtl(f"اسم المدرسة: {school_name or '—'}"), ln=1, align="R")
     pdf.cell(0,8, rtl(f"اسم الطالب: {student_name}"), ln=1, align="R")
-    pdf.cell(0,8, rtl(f"الصف: {grade or '—'}     الشعبة: {section or '—'}"), ln=1, align="R")
-    pdf.ln(2)
+    pdf.cell(0,8, rtl(f"الصف: {grade or '—'}     الشعبة: {section or '—'}"), ln=1, align="R"); pdf.ln(2)
 
     # جدول — عرض <= 190مم
     headers = [rtl("المادة"), rtl("عدد التقييمات الإجمالي"), rtl("عدد التقييمات المنجزة"), rtl("عدد التقييمات المتبقية")]
-    widths = [76, 38, 38, 38]  # 190مم
+    widths  = [76, 38, 38, 38]  # 190مم
     pdf.set_fill_color(*QATAR_MAROON); set_font(12, (255,255,255))
     pdf.set_y(pdf.get_y()+4)
     for w,h in zip(widths, headers): pdf.cell(w, 9, h, border=0, align="C", fill=True)
@@ -608,29 +651,15 @@ def make_student_pdf_fpdf(
     set_font(12); remaining = max(total_total-total_solved, 0)
     pdf.cell(0,8, rtl(f"منجز: {total_solved}    متبقي: {remaining}    نسبة حل التقييمات: {overall_avg:.1f}%"), ln=1, align="R")
 
+    # التوصية
     pdf.ln(2); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("توصية منسق المشاريع:"), ln=1, align="R")
-    set_font(11); 
-    for line in (reco_text or "—").splitlines():
-        pdf.multi_cell(0, 7, rtl(line), align="R")
-
-    pdf.ln(2); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("روابط مهمة:"), ln=1, align="R")
     set_font(11)
-    pdf.cell(0,7, rtl("رابط نظام قطر: https://portal.education.qa"), ln=1, align="R")
-    pdf.cell(0,7, rtl("استعادة كلمة المرور: https://password.education.qa"), ln=1, align="R")
-    pdf.cell(0,7, rtl("قناة قطر للتعليم: https://edu.tv.qa"), ln=1, align="R")
+    for line in (reco_text or "—").splitlines(): pdf.multi_cell(0, 7, rtl(line), align="R")
 
-    pdf.ln(4); set_font(12, QATAR_MAROON); pdf.cell(0,8, rtl("التوقيعات"), ln=1, align="R")
-    set_font(11); pdf.set_draw_color(*QATAR_GOLD)
-    boxes = [("منسق المشاريع", coordinator_name), ("النائب الأكاديمي", academic_deputy),
-             ("النائب الإداري", admin_deputy), ("مدير المدرسة", principal_name)]
-    x_left, x_right = 10, 110; y0 = pdf.get_y()+2; w, h = 90, 18
-    for i, (title, name) in enumerate(boxes):
-        row, col = i//2, i%2
-        x = x_right if col==0 else x_left; yb = y0 + row*(h+6)
-        pdf.rect(x, yb, w, h)
-        set_font(11)
-        pdf.set_xy(x, yb+3); pdf.cell(w-4, 6, rtl(f"{title} / {name or '—'}"), align="R")
-        pdf.set_xy(x, yb+10); pdf.cell(w-4, 6, rtl("التوقيع: __________________    التاريخ: __________"), align="R")
+    # Footer (حسب طلبك)
+    pdf.set_y(-18)
+    set_font(9, (90,90,90))
+    pdf.cell(0, 8, rtl("إعداد الرسوم البيانية في الصور حسب توقعات مبدئية | تطوير وتنفيذ: سحر عثمان"), 0, 0, 'C')
 
     out = pdf.output(dest="S")
     return out if isinstance(out,(bytes,bytearray)) else str(out).encode("latin-1","ignore")
@@ -761,7 +790,7 @@ def main():
 
         st.divider()
 
-        # ================== فلاتر إضافية (الصف + الشعبة + الفئة) ==================
+        # فلاتر (صف/شعبة/فئة)
         st.subheader("📋 جدول النتائج التفصيلي")
         colf1, colf2, colf3 = st.columns(3)
         with colf1:
@@ -775,14 +804,11 @@ def main():
             selected_category = st.selectbox("فلتر حسب الفئة", categories)
 
         filtered_pivot = pivot.copy()
-        if selected_level != 'الكل':
-            filtered_pivot = filtered_pivot[filtered_pivot['الصف']==selected_level]
-        if selected_section != 'الكل':
-            filtered_pivot = filtered_pivot[filtered_pivot['الشعبة']==selected_section]
-        if selected_category != 'الكل':
-            filtered_pivot = filtered_pivot[filtered_pivot['الفئة']==selected_category]
+        if selected_level  != 'الكل': filtered_pivot = filtered_pivot[filtered_pivot['الصف']==selected_level]
+        if selected_section!= 'الكل': filtered_pivot = filtered_pivot[filtered_pivot['الشعبة']==selected_section]
+        if selected_category!= 'الكل': filtered_pivot = filtered_pivot[filtered_pivot['الفئة']==selected_category]
 
-        st.dataframe(filtered_pivot, use_container_width=True, height=420)
+        st.dataframe(filtered_pivot, use_container_width=True, height=440)
         csv = filtered_pivot.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 تحميل الجدول (CSV)", csv,
                            f"ingaz_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
@@ -790,11 +816,11 @@ def main():
 
         st.divider()
 
-        # ================== رسوم موجودة ==================
+        # 🍩 توزيع الفئات العام + مؤشر
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.markdown('<h2 class="chart-title">🍩 التوزيع العام للفئات</h2>', unsafe_allow_html=True)
-        counts = filtered_pivot['الفئة'].value_counts().reindex(CATEGORY_ORDER, fill_value=0) if 'الفئة' in filtered_pivot.columns else pd.Series(dtype=int)
-        if not counts.empty:
+        if 'الفئة' in filtered_pivot.columns and not filtered_pivot.empty:
+            counts = filtered_pivot['الفئة'].value_counts().reindex(CATEGORY_ORDER, fill_value=0)
             fig_donut = go.Figure([go.Pie(labels=counts.index, values=counts.values, hole=0.55,
                 marker=dict(colors=[CATEGORY_COLORS[k] for k in counts.index]),
                 textinfo='label+value', textfont=dict(size=13, family='Cairo'),
@@ -821,29 +847,42 @@ def main():
         st.plotly_chart(fig_g, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # ================== تحليل نسبة الحل العامة لكل مادة + فلترة الشعبة ==================
+        # ✅ رجوع رسم توزيع الفئات حسب المادة
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        st.markdown('<h2 class="chart-title">📊 توزيع الفئات حسب المادة الدراسية</h2>', unsafe_allow_html=True)
+        try:
+            normalized = normalize_dataframe(df.copy())
+            # فلترة خام حسب اختيار المستخدم
+            if selected_level  != 'الكل': normalized = normalized[normalized['level'].astype(str)==str(selected_level)]
+            if selected_section!= 'الكل': normalized = normalized[normalized['section'].astype(str)==str(selected_section)]
+            agg_df = aggregate_by_subject(normalized)
+            if not agg_df.empty:
+                st.plotly_chart(chart_stacked_by_subject(agg_df, mode='percent'), use_container_width=True)
+            else:
+                st.info("لا توجد بيانات كافية لعرض الرسم.")
+        except Exception as e:
+            st.error(f"خطأ في الرسم: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # 📚 نسبة الحل العامة لكل مادة
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.markdown('<h2 class="chart-title">📚 نسبة الحل العامة لكل مادة</h2>', unsafe_allow_html=True)
-        # نفلتر DataFrame الخام بنفس فلاتر الصف/الشعبة
         df_filtered = df.copy()
-        if selected_level != 'الكل':
-            df_filtered = df_filtered[df_filtered['level'].astype(str)==str(selected_level)]
-        if selected_section != 'الكل':
-            df_filtered = df_filtered[df_filtered['section'].astype(str)==str(selected_section)]
-        sub_tbl = subject_completion_summary(df_filtered, section=None)  # section أخذناه من الفلتر أعلاه
+        if selected_level  != 'الكل': df_filtered = df_filtered[df_filtered['level'].astype(str)==str(selected_level)]
+        if selected_section!= 'الكل': df_filtered = df_filtered[df_filtered['section'].astype(str)==str(selected_section)]
+        sub_tbl = subject_completion_summary(df_filtered)
         if not sub_tbl.empty:
             st.dataframe(sub_tbl, use_container_width=True, height=300)
-            st.plotly_chart(chart_subject_completion_table_bar(sub_tbl), use_container_width=True)
+            st.plotly_chart(chart_subject_completion_bar(sub_tbl), use_container_width=True)
         else:
             st.info("لا توجد بيانات كافية لحساب متوسطات المواد.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # ================== رسم بياني على مستوى الشعب ==================
+        # 🏷️ متوسط الإنجاز على مستوى الشعب
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
         st.markdown('<h2 class="chart-title">🏷️ متوسط الإنجاز على مستوى الشعب</h2>', unsafe_allow_html=True)
         df_for_sections = df.copy()
-        if selected_level != 'الكل':
-            df_for_sections = df_for_sections[df_for_sections['level'].astype(str)==str(selected_level)]
+        if selected_level  != 'الكل': df_for_sections = df_for_sections[df_for_sections['level'].astype(str)==str(selected_level)]
         sec_tbl = section_completion_summary(df_for_sections)
         if not sec_tbl.empty:
             st.dataframe(sec_tbl, use_container_width=True, height=260)
@@ -851,6 +890,32 @@ def main():
         else:
             st.info("لا توجد بيانات كافية لعرض متوسطات الشعب.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+        st.divider()
+
+        # ================== التقارير الوصفية/الكمية ==================
+        st.subheader("📝 تقارير وصفية وكمية")
+        colr1, colr2 = st.columns(2)
+
+        with colr1:
+            st.markdown("#### تقرير مُكي/وصفي لكل مادة")
+            rep_sub = report_per_subject(df_filtered)
+            if not rep_sub.empty:
+                st.dataframe(rep_sub, use_container_width=True, height=360)
+            else:
+                st.info("لا توجد بيانات لتقرير المواد.")
+
+        with colr2:
+            st.markdown("#### تقرير كمي/وصفي لكل شعبة × مادة")
+            df_secsub = df.copy()
+            if selected_level  != 'الكل': df_secsub = df_secsub[df_secsub['level'].astype(str)==str(selected_level)]
+            rep_secsub = report_per_section_subject(df_secsub)
+            if selected_section != 'الكل':
+                rep_secsub = rep_secsub[rep_secsub['الشعبة'].astype(str)==str(selected_section)]
+            if not rep_secsub.empty:
+                st.dataframe(rep_secsub, use_container_width=True, height=360)
+            else:
+                st.info("لا توجد بيانات لتقرير الشُعب × المواد.")
 
         st.divider()
 
@@ -866,16 +931,15 @@ def main():
                 s = str(row['الشعبة'].iloc[0]) if not row.empty else ''
                 student_category = row['الفئة'].iloc[0] if not row.empty and 'الفئة' in row.columns else ''
             with crec:
-                from_text = {
+                auto_map = {
                     'بلاتيني 🥇': f"أداء متميز جدًا. استمر {sel} بهذا النسق.",
-                    'ذهبي 🥈': f"أداء قوي وقابل للتحسن نحو البلاتيني.",
-                    'فضي 🥉': f"أداء جيد ويحتاج مزيد التثبيت.",
-                    'برونزي': f"نوصي بزيادة الالتزام والمتابعة.",
+                    'ذهبي 🥈'   : f"أداء قوي وقابل للتحسن نحو البلاتيني.",
+                    'فضي 🥉'    : f"أداء جيد ويحتاج مزيد التثبيت.",
+                    'برونزي'    : f"نوصي بزيادة الالتزام والمتابعة.",
                     'بحاجة لتحسين': f"يلزم خطة متابعة مكثفة.",
-                    'لا يستفيد': f"ابدأ فورًا بتفعيل النظام؛ نحن هنا للمساعدة."
+                    'لا يستفيد' : f"ابدأ فورًا بتفعيل النظام؛ نحن هنا للمساعدة."
                 }
-                auto = from_text.get(student_category, "نوصي بالمتابعة المستمرة.")
-                reco = st.text_area("توصية منسق المشاريع", value=auto, height=180)
+                reco = st.text_area("توصية منسق المشاريع", value=auto_map.get(student_category, "نوصي بالمتابعة المستمرة."), height=180)
 
             sdata = df[(df['student_name'].str.strip()==sel.strip())].copy()
             if not sdata.empty:
@@ -918,17 +982,12 @@ def main():
                                 if pd.isna(av): av = 0.0
                                 if use_auto_all:
                                     cat = r['الفئة'].iloc[0] if not r.empty and 'الفئة' in r.columns else ''
-                                    auto_map = {'بلاتيني 🥇':"أداء متميز جدًا.",
-                                                'ذهبي 🥈':"أداء قوي وقابل للتحسن.",
-                                                'فضي 🥉':"أداء جيد.",
-                                                'برونزي':"نوصي بزيادة الالتزام.",
-                                                'بحاجة لتحسين':"خطة متابعة مكثفة.",
-                                                'لا يستفيد':"ابدأ بتفعيل النظام."}
-                                    rtext = auto_map.get(cat, "نوصي بالمتابعة المستمرة.")
-                                elif same_reco:
-                                    rtext = reco
-                                else:
-                                    rtext = ""
+                                    auto_map2 = {'بلاتيني 🥇':"أداء متميز جدًا.","ذهبي 🥈': 'أداء قوي وقابل للتحسن.'",
+                                                 'فضي 🥉':"أداء جيد.","برونزي': 'زيادة الالتزام.'",
+                                                 'بحاجة لتحسين':"خطة متابعة مكثفة.","لا يستفيد': 'ابدأ بتفعيل النظام.'"}
+                                    rtext = auto_map2.get(cat, "نوصي بالمتابعة المستمرة.")
+                                elif same_reco: rtext = reco
+                                else: rtext = ""
                                 pdfb = make_student_pdf_fpdf(
                                     school_name=school_name or "", student_name=stu, grade=g, section=s,
                                     table_df=t[['المادة','إجمالي','منجز','متبقي']], overall_avg=av, reco_text=rtext,
@@ -947,11 +1006,13 @@ def main():
                     except Exception as e:
                         st.error(f"❌ خطأ في إنشاء الحزمة: {e}")
 
-    # فوتر
+    # Footer
     st.markdown(f"""
-    <div style="margin-top:22px;background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);color:#fff;border-radius:10px;padding:12px 10px;text-align:center;">
+    <div style="margin-top:22px;background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
+                color:#fff;border-radius:12px;padding:12px 10px;text-align:center;">
       <div style="font-weight:800;font-size:15px;margin:2px 0 4px">مدرسة عثمان بن عفان النموذجية للبنين</div>
       <div style="font-weight:700;font-size:12px;margin:0 0 4px;opacity:.95">© {datetime.now().year} جميع الحقوق محفوظة</div>
+      <div style="font-weight:600;font-size:12px;opacity:.95">إعداد الرسوم البيانية في الصور حسب توقعات مبدئية | تطوير وتنفيذ: سحر عثمان</div>
     </div>
     """, unsafe_allow_html=True)
 
