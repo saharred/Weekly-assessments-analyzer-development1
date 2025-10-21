@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم
-النسخة 2.4
+النسخة 2.5
 - هوية عنابية/ذهبية جمالية
 - تحليل مواد وشُعب ورسوم
 - تقارير PDF/ZIP
-- رفع بيانات المعلمات والربط بالشُعب
-- مراسلة المعلمات بضغطة (mailto) مع توصية وأسماء الطلاب "لا يستفيد"
+- رفع بيانات المعلمات والربط بالشُعب (واضح في الصفحة + في الشريط الجانبي)
+- مراسلة المعلمات بضغطة (mailto) مع توصية وأسماء الطلاب «لا يستفيد»
 """
 
 import os
@@ -21,7 +21,7 @@ from datetime import datetime, date
 from typing import Tuple, Optional, List, Dict, Any
 from functools import wraps
 import time
-from urllib.parse import quote  # لترميز نص البريد
+from urllib.parse import quote
 
 import streamlit as st
 import pandas as pd
@@ -42,12 +42,14 @@ def rtl(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
     if AR_OK:
-        try: return get_display(arabic_reshaper.reshape(text))
-        except Exception: return text
+        try:
+            return get_display(arabic_reshaper.reshape(text))
+        except Exception:
+            return text
     return text
 
 # ================== ثوابت وهوية ==================
-QATAR_MAROON = (138, 21, 56)       # RGB
+QATAR_MAROON = (138, 21, 56)
 QATAR_GOLD   = (201, 166, 70)
 
 CATEGORY_COLORS = {
@@ -86,10 +88,12 @@ def safe_execute(default_return=None, error_message="حدث خطأ"):
     def deco(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            try: return func(*args, **kwargs)
+            try:
+                return func(*args, **kwargs)
             except Exception as e:
                 logger.error(f"{error_message} في {func.__name__}: {e}")
-                if st: st.error(f"{error_message}: {e}")
+                if st:
+                    st.error(f"{error_message}: {e}")
                 return default_return
         return wrapper
     return deco
@@ -121,7 +125,6 @@ _AR_MONTHS_BASE = {
     "جانفي":1,"فيفري":2,"افريل":4,"ماي":5,"جوان":6,"جويلية":7,"اوت":8,"دجنبر":12
 }
 _AR_MONTHS = { _norm_month_key(k): v for k, v in _AR_MONTHS_BASE.items() }
-
 _EN_MONTHS = {
     "jan":1,"january":1,"feb":2,"february":2,"mar":3,"march":3,"apr":4,"april":4,"may":5,
     "jun":6,"june":6,"jul":7,"july":7,"aug":8,"august":8,"sep":9,"sept":9,"september":9,
@@ -175,7 +178,8 @@ def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
             d = parsed.date()
             if parsed.year < 1900: d = d.replace(year=default_year)
             return d
-    except Exception: pass
+    except Exception:
+        pass
     return None
 
 def in_range(d: Optional[date], start: Optional[date], end: Optional[date]) -> bool:
@@ -208,7 +212,7 @@ def setup_app():
         "logo_path": None,
         "selected_sheets": [],
         "analysis_stats": {},
-        "teachers_df": None,  # ✅ سنخزن بيانات المعلمات هنا
+        "teachers_df": None,  # ⬅️ سيتم ملؤه من الواجهة أو الشريط الجانبي
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -226,7 +230,6 @@ def apply_custom_styles():
     section[data-testid="stSidebar"]{right:0!important;left:auto!important}
     .main .block-container{padding-right:4.5rem!important;padding-left:1rem!important}
 
-    /* Header */
     .header-container{
       background:linear-gradient(135deg,#8A1538 0%,#6B1029 100%);
       padding:36px 28px;color:#fff;text-align:center;margin-bottom:18px;
@@ -236,12 +239,10 @@ def apply_custom_styles():
     .header-container h1{margin:0 0 6px 0;font-size:30px;font-weight:800;letter-spacing:.2px}
     .header-sub{font-size:15px;font-weight:700;color:#EADAA9;margin-top:4px}
 
-    /* Cards/Charts */
     .chart-container{background:#fff;border:2px solid #E9E9EE;border-right:6px solid #8A1538;
       border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 2px 10px rgba(0,0,0,.07)}
     .chart-title{font-size:20px;font-weight:800;color:#8A1538;text-align:center;margin-bottom:10px}
 
-    /* Sidebar */
     [data-testid="stSidebar"]{
       background:linear-gradient(180deg,#8A1538 0%,#6B1029 100%)!important;
       border-left:2px solid #C9A646;box-shadow:-4px 0 16px rgba(0,0,0,.15)}
@@ -275,8 +276,7 @@ def prepare_default_font() -> Tuple[str, Optional[str]]:
         "C:\\Windows\\Fonts\\arial.ttf",
     ]
     for p in candidates:
-        if os.path.exists(p):
-            return font_name, p
+        if os.path.exists(p): return font_name, p
     return "", None
 
 @safe_execute(default_return=None, error_message="خطأ في معالجة الشعار")
@@ -288,6 +288,36 @@ def prepare_logo_file(logo_file) -> Optional[str]:
     logo_file.seek(0)
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp.write(logo_file.read()); return tmp.name
+
+# ================== تحميل ملف المعلمات (مشترك) ==================
+def _load_teachers_df(file) -> Optional[pd.DataFrame]:
+    """يرفع ملف المعلمات ويعيد DataFrame موحّد الأعمدة: الشعبة، اسم المعلمة، البريد الإلكتروني"""
+    if file is None: return None
+    if file.name.endswith(".csv"):
+        tdf = pd.read_csv(file)
+    else:
+        tdf = pd.read_excel(file)
+    # محاولة التعرف على الأعمدة
+    cols_map = {c.strip(): c for c in tdf.columns}
+    def find_col(options):
+        for k in cols_map:
+            base = _strip_invisible_and_diacritics(k)
+            if base in options: return cols_map[k]
+        return None
+    sec_col = find_col(["الشعبة","شعبة","Section","section"])
+    name_col= find_col(["اسم المعلمة","المعلمة","Teacher","teacher","اسم المعلم","المعلم"])
+    mail_col= find_col(["البريد الإلكتروني","البريد الالكتروني","email","Email","البريد"])
+    if not (sec_col and name_col and mail_col):
+        st.error("❌ يجب أن يحتوي الملف على أعمدة: الشعبة، اسم المعلمة، البريد الإلكتروني")
+        return None
+    tdf = tdf[[sec_col, name_col, mail_col]].rename(
+        columns={sec_col:"الشعبة", name_col:"اسم المعلمة", mail_col:"البريد الإلكتروني"}
+    )
+    tdf["الشعبة"] = (tdf["الشعبة"].astype(str)
+                     .apply(_strip_invisible_and_diacritics)
+                     .map(_normalize_arabic_digits)
+                     .str.strip())
+    return tdf
 
 # ================== تحليل Excel ==================
 def parse_sheet_name(sheet_name: str) -> Tuple[str, str, str]:
@@ -457,7 +487,7 @@ def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
             st.code(traceback.format_exc())
         return pd.DataFrame()
 
-# ============== تحليلات إضافية ==============
+# ================== تحليلات إضافية ==================
 def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     if 'solve_pct' in out.columns: out = out.rename(columns={'solve_pct':'percent'})
@@ -497,7 +527,7 @@ def section_completion_summary(df: pd.DataFrame) -> pd.DataFrame:
     out = out.rename(columns={'section':'الشعبة'}).sort_values('متوسط_الشعبة', ascending=False)
     return out
 
-# ============== رسوم بيانية ==============
+# ================== رسوم بيانية ==================
 def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
     fig = go.Figure(); colors = [CATEGORY_COLORS[c] for c in CATEGORY_ORDER]
     for i, cat in enumerate(CATEGORY_ORDER):
@@ -555,7 +585,7 @@ def chart_section_avg_bar(df_section: pd.DataFrame) -> go.Figure:
     )
     return fig
 
-# ============== تقارير وصفية/كمية ==============
+# ================== تقارير وصفية/كمية ==================
 def _strengths_weaknesses(avg: float) -> Tuple[str, str]:
     if avg >= 85: return "التزام مرتفع – إنجاز مستقر", "ضرورة تثبيت المستوى والمتابعة"
     if avg >= 70: return "تفاعل جيد – إمكانات قوية", "تذبذب في بعض المهام"
@@ -590,7 +620,7 @@ def report_per_section_subject(df: pd.DataFrame) -> pd.DataFrame:
     g['توصيات'] = " • " + " | ".join(recommendations_pack())
     return g.sort_values(['الشعبة','متوسط'], ascending=[True, False]).reset_index(drop=True)
 
-# ============== توصية تلقائية موحّدة ==============
+# ================== توصية تلقائية موجزة ==================
 def get_auto_reco(category: str, student_name: str = "") -> str:
     mapping = {
         'بلاتيني 🥇': "أداء متميز جدًا. استمر بهذا النسق.",
@@ -602,7 +632,7 @@ def get_auto_reco(category: str, student_name: str = "") -> str:
     }
     return mapping.get(category, "نوصي بالمتابعة المستمرة.")
 
-# ============== PDF فردي ==============
+# ================== PDF فردي ==================
 @safe_execute(default_return=b"", error_message="خطأ في إنشاء PDF")
 def make_student_pdf_fpdf(
     school_name: str, student_name: str, grade: str, section: str,
@@ -669,7 +699,7 @@ def make_student_pdf_fpdf(
     out = pdf.output(dest="S")
     return out if isinstance(out,(bytes,bytearray)) else str(out).encode("latin-1","ignore")
 
-# ============== التطبيق ==============
+# ================== التطبيق ==================
 def main():
     setup_app()
 
@@ -727,45 +757,53 @@ def main():
         principal_name   = st.text_input("مدير/ة المدرسة")
 
         st.markdown("---")
-        # 📚 بيانات المعلمات
-        st.subheader("📚 بيانات المعلمات (الشُعب والبريد)")
-        teacher_file = st.file_uploader("ارفع ملف المعلمات (Excel/CSV)",
-                                        type=["xlsx","xls","csv"], key="teacher_file")
-        teachers_df = None
-        if teacher_file:
-            try:
-                if teacher_file.name.endswith(".csv"):
-                    teachers_df = pd.read_csv(teacher_file)
-                else:
-                    teachers_df = pd.read_excel(teacher_file)
-                # توحيد أسماء الأعمدة الشائعة
-                cols_map = {c.strip(): c for c in teachers_df.columns}
-                def find_col(options):
-                    for k in cols_map:
-                        base = _strip_invisible_and_diacritics(k)
-                        if base in options: return cols_map[k]
-                    return None
-                sec_col = find_col(["الشعبة","شعبة","Section","section"])
-                name_col= find_col(["اسم المعلمة","المعلمة","Teacher","teacher","اسم المعلم","المعلم"])
-                mail_col= find_col(["البريد الإلكتروني","البريد الالكتروني","email","Email","البريد"])
-                if not (sec_col and name_col and mail_col):
-                    st.error("❌ يجب أن يحتوي الملف على أعمدة: الشعبة، اسم المعلمة، البريد الإلكتروني")
-                else:
-                    teachers_df = teachers_df[[sec_col, name_col, mail_col]].rename(
-                        columns={sec_col:"الشعبة", name_col:"اسم المعلمة", mail_col:"البريد الإلكتروني"}
-                    )
-                    teachers_df["الشعبة"] = teachers_df["الشعبة"].astype(str).apply(_strip_invisible_and_diacritics).map(_normalize_arabic_digits).str.strip()
-                    st.session_state.teachers_df = teachers_df.copy()
-                    st.success("✅ تم تحميل بيانات المعلمات")
-                    st.dataframe(teachers_df, use_container_width=True, height=200)
-            except Exception as e:
-                st.error(f"❌ خطأ في قراءة ملف المعلمات: {e}")
+        # (اختياري) رفع ملف المعلمات في الشريط الجانبي أيضاً
+        st.subheader("📚 بيانات المعلمات (اختياري من هنا أيضاً)")
+        teacher_file_sb = st.file_uploader("ارفع ملف المعلمات (Excel/CSV)",
+                                        type=["xlsx","xls","csv"], key="teacher_file_sidebar")
+        if teacher_file_sb:
+            tdf = _load_teachers_df(teacher_file_sb)
+            if tdf is not None:
+                st.session_state.teachers_df = tdf
+                st.success("✅ تم تحميل بيانات المعلمات (من الشريط الجانبي)")
+                st.dataframe(tdf, use_container_width=True, height=180)
 
         run_analysis = st.button("▶️ تشغيل التحليل", use_container_width=True, type="primary", disabled=not uploaded_files)
 
     # === Main content ===
+
+    # ✅ قسم واضح في الصفحة لرفع بيانات المعلمات + تنزيل قالب
+    st.subheader("📚 رفع بيانات المعلمات")
+    st.caption("ارفعي ملف يحتوي أعمدة: **الشعبة ، اسم المعلمة ، البريد الإلكتروني**")
+    # زر تنزيل قالب CSV
+    sample = pd.DataFrame({
+        "الشعبة": ["03/1","03/2"],
+        "اسم المعلمة": ["نورة علي","مريم محمد"],
+        "البريد الإلكتروني": ["n.ali@school.qa","m.mohammed@school.qa"],
+    })
+    st.download_button(
+        "⬇️ تنزيل قالب (CSV)",
+        sample.to_csv(index=False).encode('utf-8-sig'),
+        file_name="teachers_template.csv",
+        mime="text/csv"
+    )
+    teacher_file_main = st.file_uploader("ارفع ملف المعلمات هنا (Excel/CSV)",
+                                         type=["xlsx","xls","csv"], key="teacher_file_main")
+    if teacher_file_main:
+        tdf_main = _load_teachers_df(teacher_file_main)
+        if tdf_main is not None:
+            st.session_state.teachers_df = tdf_main
+            st.success("✅ تم تحميل بيانات المعلمات (من الصفحة الرئيسية)")
+            st.dataframe(tdf_main, use_container_width=True, height=220)
+
+    st.markdown("---")
+
+    if not ('school_name' in locals()):
+        # في حال لم تُعرّف بسبب سياق الشريط الجانبي
+        school_name = st.session_state.get("school_name","")
+
     if not uploaded_files:
-        st.info("📤 ارفع ملفات Excel من الشريط الجانبي للبدء")
+        st.info("📤 ارفعي ملفات Excel من الشريط الجانبي للبدء")
 
     elif run_analysis:
         sheets_to_use = st.session_state.selected_sheets or []
@@ -991,8 +1029,10 @@ def main():
                 pdf_one = make_student_pdf_fpdf(
                     school_name=school_name or "", student_name=sel, grade=g, section=s,
                     table_df=table[['المادة','إجمالي','منجز','متبقي']], overall_avg=avg_stu, reco_text=reco,
-                    coordinator_name=coordinator_name or "", academic_deputy=academic_deputy or "",
-                    admin_deputy=admin_deputy or "", principal_name=principal_name or "",
+                    coordinator_name=st.session_state.get("coordinator_name", "") or "",
+                    academic_deputy=st.session_state.get("academic_deputy","") or "",
+                    admin_deputy=st.session_state.get("admin_deputy","") or "",
+                    principal_name=st.session_state.get("principal_name","") or "",
                     font_info=st.session_state.font_info, logo_path=st.session_state.logo_path
                 )
                 if pdf_one:
@@ -1032,8 +1072,10 @@ def main():
                                 pdfb = make_student_pdf_fpdf(
                                     school_name=school_name or "", student_name=stu, grade=g, section=s,
                                     table_df=t[['المادة','إجمالي','منجز','متبقي']], overall_avg=av, reco_text=rtext,
-                                    coordinator_name=coordinator_name or "", academic_deputy=academic_deputy or "",
-                                    admin_deputy=admin_deputy or "", principal_name=principal_name or "",
+                                    coordinator_name=st.session_state.get("coordinator_name","") or "",
+                                    academic_deputy=st.session_state.get("academic_deputy","") or "",
+                                    admin_deputy=st.session_state.get("admin_deputy","") or "",
+                                    principal_name=st.session_state.get("principal_name","") or "",
                                     font_info=st.session_state.font_info, logo_path=st.session_state.logo_path
                                 )
                                 if pdfb:
@@ -1053,27 +1095,23 @@ def main():
         st.subheader("💌 مراسلة المعلمات للطلاب «لا يستفيد»")
         teachers_df = st.session_state.get("teachers_df")
         if teachers_df is None or teachers_df.empty:
-            st.info("📥 ارفعي ملف المعلمات (الشعبة، اسم المعلمة، البريد الإلكتروني) من الشريط الجانبي لتمكين هذه الميزة.")
+            st.info("📥 ارفعي ملف المعلمات من قسم «📚 رفع بيانات المعلمات» بالأعلى (أو من الشريط الجانبي) لتمكين هذه الميزة.")
         else:
-            # جدول الطلاب لا يستفيد بحسب الفلاتر الحالية
             non_benefit = filtered_pivot.copy()
             non_benefit = non_benefit[non_benefit['الفئة'] == 'لا يستفيد']
             if non_benefit.empty:
                 st.success("لا يوجد طلاب ضمن فئة «لا يستفيد» في نطاق الفلاتر الحالية 👌")
             else:
-                # ربط بالشُعب → المعلمات
                 tmp = non_benefit[['الطالب','الصف','الشعبة']].copy()
                 tmp['الشعبة'] = tmp['الشعبة'].astype(str).apply(_strip_invisible_and_diacritics).map(_normalize_arabic_digits).str.strip()
                 tdf = teachers_df.copy()
                 tdf['الشعبة'] = tdf['الشعبة'].astype(str).apply(_strip_invisible_and_diacritics).map(_normalize_arabic_digits).str.strip()
                 joined = tmp.merge(tdf, on='الشعبة', how='left')
 
-                # توصية عامة قابلة للتعديل لكل المعلمات
                 default_reco = "يرجى فتح نظام قطر داخل الصف والمتابعة الفورية، والتواصل مع ولي الأمر، وتخصيص خطة دعم قصيرة المدى."
                 global_reco = st.text_area("✍️ نص التوصية العامة (يمكن التعديل قبل الإرسال):", value=default_reco, height=100)
 
                 st.markdown("#### قائمة المعلمات والشُعب")
-                # تجميع حسب المعلمة/الشعبة
                 groups = joined.groupby(['اسم المعلمة','البريد الإلكتروني','الشعبة'])
                 for (t_name, t_email, sect), gdf in groups:
                     students_list = sorted(gdf['الطالب'].dropna().astype(str).unique().tolist())
@@ -1082,7 +1120,6 @@ def main():
                         st.warning(f"⚠️ الشعبة {sect}: لا يوجد بريد للمعلمة {t_name or '—'}")
                         continue
 
-                    # موضوع ونص الرسالة
                     subject = f"متابعة طلاب الشعبة {sect} - فئة لا يستفيد"
                     body_lines = [
                         f"السلام عليكم أستاذة {t_name or ''},",
@@ -1098,11 +1135,8 @@ def main():
                         "شاكرين تعاونك."
                     ]
                     body = "\n".join(body_lines)
-
-                    # رابط mailto (مُشفَّر)
                     mailto_link = f"mailto:{t_email}?subject={quote(subject)}&body={quote(body)}"
 
-                    # عرض البطاقة
                     st.markdown(
                         f"""
                         <div class="chart-container" style="padding:14px">
@@ -1137,6 +1171,6 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-# ============== تشغيل ==============
+# ================== تشغيل ==================
 if __name__ == "__main__":
     main()
