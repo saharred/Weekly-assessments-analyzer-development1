@@ -1,650 +1,2082 @@
 # -*- coding: utf-8 -*-
 """
-📊 أي إنجاز — لوحة تحليل إنجاز الطلاب (Purple/White)
-- اختيار أوراق Excel من الشريط الجانبي
-- ربط سجل القيد (رقم شخصي + صف + شعبة) بتطبيع الاسم
-- ensure_uid: uid موحّد + إزالة التكرارات
-- Pivot: كل طالب صف واحد
-- رسوم عامة + فئات + مواد
-- توصيات تشغيلية لرفع نسبة الإنجاز (غير أكاديمية)
-- تصدير Excel شامل + PDF فردي لكل طالب داخل ZIP
-- حفظ الجداول في session_state لثبات أزرار التصدير
-- تطبيق متطلبات برومد: معالجة تاريخ الاستحقاق (Due Date) وقواعد التصنيف.
+تطبيق إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم
+النسخة المحسّنة 2.0
 """
+
+import os
+import io
+import re
+import zipfile
+import logging
+import unicodedata
+import warnings
+from datetime import datetime, date
+from typing import Tuple, Optional, List, Dict, Any
+from functools import wraps
+import time
 
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from io import BytesIO
-import re, zipfile
-from typing import Dict, List, Tuple, Optional
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.colors import Color
-from reportlab.lib.units import mm
-from reportlab.lib.utils import ImageReader
-from datetime import datetime
-import pytz
+import numpy as np
+import plotly.graph_objects as go
+from fpdf import FPDF
 
-# تم إلغاء تهيئة عميل الذكاء الاصطناعي بناءً على طلب المستخدم
-client = None
+# استيراد مكتبات العربية مع معالجة أفضل
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    AR_OK = True
+except ImportError:
+    AR_OK = False
+    warnings.warn(
+        "⚠️ مكتبات arabic_reshaper غير متوفرة - قد يتأثر عرض النصوص العربية في PDF\n"
+        "للتثبيت: pip install arabic-reshaper python-bidi"
+    )
 
-# --------------- إعداد الصفحة ---------------
-st.set_page_config(page_title="أي إنجاز", page_icon="📊", layout="wide")
+# ============== الإعدادات والثوابت ==============
 
-# تحديد المنطقة الزمنية لقطر
-QATAR_TIMEZONE = pytz.timezone('Asia/Qatar')
-TODAY = datetime.now(QATAR_TIMEZONE).date()
+QATAR_MAROON = (138, 21, 56)
+QATAR_GOLD = (201, 166, 70)
 
-# قيم الحالة التي يجب تجاهلها في الإنجاز
-IGNORED_STATUS = ['M', 'I', 'AB', 'X', 'ملِّ سَ يُ مل', 'Overall']
-POSITIVE_STATUS = ["solved","yes","1","تم","منجز","✓","✔","✅"]
-# الأرقام (0-100) تعتبر منجزة حتى لو كانت 0، ما لم تكن من IGNORED_STATUS
+CATEGORY_COLORS = {
+    'بلاتيني 🥇': '#E5E4E2',
+    'ذهبي 🥈': '#C9A646',
+    'فضي 🥉': '#C0C0C0',
+    'برونزي': '#CD7F32',
+    'بحاجة لتحسين': '#FF9800',
+    'لا يستفيد': '#8A1538'
+}
 
-# --------------- التوصيات الثابتة (وفقاً لبرومد) ---------------
-# العبارة الثابتة المطلوبة (Fixed Reminder)
-FIXED_REMINDER = "**نوصي بتذكير الطالب دائمًا بحل التقييمات بنهاية كل حصة، وتوظيف استراتيجية الصفوف المقلوبة بتوظيف نظام قطر للتعليم.**"
-PARENT_COMMUNICATION = "**نوصي بالتواصل مع ولي الأمر**"
+CATEGORY_ORDER = ['بلاتيني 🥇', 'ذهبي 🥈', 'فضي 🥉', 'برونزي', 'بحاجة لتحسين', 'لا يستفيد']
 
-def get_student_recommendation(category: str) -> str:
-    # Templates from برومد.docx
-    if category == "🏆 Platinum":
-        template = "نثمن تميزك المستمر، لقد أظهرت إبداعًا واجتهادًا ملحوظًا. نوصي بمشاركة خبراتك مع زملائك لتعزيز الاستمرارية."
-    elif category == "🥇 Gold":
-        template = "أحسنت! مستواك يعكس التزامًا رائعًا. نقترح معالجة أي ثغرات بسيطة وتثبيت الممارسات الناجحة."
-    elif category == "🥈 Silver":
-        template = "عملك جيد ويستحق التقدير. نوصي بتقليل الفجوات عبر أنشطة قصيرة لرفع الدافعية."
-    elif category == "🥉 Bronze":
-        template = "لقد أظهرت جهدًا مشكورًا. نوصي بمتابعة مباشرة بعد الحصص وتقسيم المهام الكبيرة إلى مهام أصغر."
-    elif category == "🔧 Needs Improvement":
-        template = f"نرى لديك إمكانيات واعدة، لكن تحتاج لمزيد من الالتزام. نوصيك بالمثابرة والمشاركة النشطة، مع متابعة داخل الحصة. {PARENT_COMMUNICATION}."
-    elif category == "🚫 Not Utilizing System":
-        template = f"لم يظهر بعد استفادة كافية من نظام قطر للتعليم. نوصي بتفعيل النظام بشكل أكبر لتحقيق النجاح. {PARENT_COMMUNICATION}."
-    else:
-        template = "توصية عامة: نحتاج إلى متابعة إضافية لضمان التزام الطالب بالتقييمات."
+# إعداد Logging احترافي
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
+logger = logging.getLogger("ingaz-app")
+
+# ============== ديكورايتورات مساعدة ==============
+
+def log_performance(func):
+    """ديكورايتور لقياس أداء الدوال المهمة"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        func_name = func.__name__
+        logger.info(f"🔄 بدء تنفيذ: {func_name}")
         
-    return f"{template} {FIXED_REMINDER}"
+        try:
+            result = func(*args, **kwargs)
+            duration = time.time() - start
+            logger.info(f"✅ اكتمل {func_name} في {duration:.2f} ثانية")
+            return result
+        except Exception as e:
+            duration = time.time() - start
+            logger.error(f"❌ فشل {func_name} بعد {duration:.2f} ثانية: {e}")
+            raise
+    
+    return wrapper
 
-# --------------- أدوات مساعدة ---------------
-def _strip_invisible_and_diacritics(s: str) -> str:
-    # إزالة الأحرف غير المرئية والتشكيل
-    s = re.sub(r"[\u200b-\u200f\u202a-\u202e\u064b-\u0652\u0640]", "", s)
-    return s
+def safe_execute(default_return=None, error_message="حدث خطأ"):
+    """ديكورايتور لمعالجة الأخطاء بشكل آمن"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"{error_message} في {func.__name__}: {e}")
+                if st:
+                    st.error(f"{error_message}: {str(e)}")
+                return default_return
+        return wrapper
+    return decorator
+
+# ============== دوال معالجة التاريخ ==============
 
 def _normalize_arabic_digits(s: str) -> str:
-    # تحويل الأرقام العربية إلى هندية (لاتينية) لتوحيد الصفوف والشعب
-    s = str(s).replace("٠", "0").replace("١", "1").replace("٢", "2").replace("٣", "3")
-    s = s.replace("٤", "4").replace("٥", "5").replace("٦", "6").replace("٧", "7")
-    s = s.replace("٨", "8").replace("٩", "9")
-    return s
+    """تحويل الأرقام العربية إلى إنجليزية"""
+    if not isinstance(s, str):
+        return str(s) if s is not None else ""
+    return s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
 
-def arabic_cleanup(s: str) -> str:
-    if pd.isna(s): return ""
-    return re.sub(r"\s+"," ",str(s).strip())
-
-def normalize_name(s: str) -> str:
-    s = arabic_cleanup(s)
-    s = _strip_invisible_and_diacritics(s)
-    s = s.replace("أ","ا").replace("إ","ا").replace("آ","ا")
-    return s
-
-def is_completed(val) -> bool:
-    """تحدد ما إذا كانت القيمة تعتبر إنجازاً (Completed)."""
-    if pd.isna(val):
-        return False
+def _strip_invisible_and_diacritics(s: str) -> str:
+    """إزالة الأحرف غير المرئية والتشكيل"""
+    if not isinstance(s, str):
+        return ""
     
-    val_str = str(val).strip()
-    val_lower = val_str.lower()
-
-    # 1. القيم التي يجب تجاهلها (M, I, AB, X, Overall)
-    if val_lower in [v.lower() for v in IGNORED_STATUS]:
-        return False
+    # الأحرف غير المرئية الشائعة
+    invisible_chars = [
+        '\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+        '\u2066', '\u2067', '\u2068', '\u2069', '\u200b', '\u200c', '\u200d',
+        '\ufeff', '\xa0', '\u0640',
+    ]
     
-    # 2. القيم النصية الإيجابية
-    if val_lower in POSITIVE_STATUS:
-        return True
-        
-    # 3. القيم الرقمية (0-100) تعتبر إنجازاً
-    try:
-        score = float(val_str)
-        # إذا كان رقمًا، فإنه يعتبر مُسلَّمًا (Submitted) حتى لو كان صفرًا.
-        return True
-    except ValueError:
-        pass
+    for char in invisible_chars:
+        s = s.replace(char, '')
     
-    # 4. 'M' = ملِّ سَ يُ مل (not submitted) → counts against completion.
-    if val_lower == 'm' or val_lower == 'ملِّ سَ يُ مل':
-        return False
+    # إزالة التشكيل
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = ' '.join(s.split())
     
-    return False # أي قيمة أخرى غير واضحة لا تعتبر إنجازاً
+    return s.strip()
 
-def parse_sheet_subject(sheet_name: str) -> Tuple[str,str,str]:
-    name = arabic_cleanup(sheet_name); grade=""; section=""
-    # محاولة استخراج (المادة) (الصف) (الشعبة)
-    m = re.search(r"(.+?)\s+(\d{1,2})\s+([A-Za-z0-9]+)\s*$", name)
-    if m:
-        # توحيد تنسيق الصف ليكون رقمين (مثل 07)
-        grade_num = int(m.group(2))
-        grade = f"المستوى {grade_num:02d}"
-        return arabic_cleanup(m.group(1)), grade, m.group(3)
-    return name, grade, section
-
-def detect_header_row(df: pd.DataFrame, default_header_row: int) -> int:
-    # في ملفات الـ LMS، الصف الأول (0) هو عنوان التقييمات، الصف الثاني (1) هو نوع التقييم، الصف الثالث (2) هو تاريخ الاستحقاق.
-    # الصف الرابع (3) هو بداية بيانات الطلاب.
-    # الصف الذي يحتوي على أسماء الطلاب هو الذي يليه مباشرة (الصف 4)
-    # لكننا سنعتمد على أن الصف 0 هو الصف الذي يحتوي على أسماء التقييمات
-    return 0 # الصف 0 هو صف أسماء التقييمات
-
-def process_excel_file(file_obj, file_name, start_row_students: int,
-                       selected_sheets: Optional[List[str]]=None) -> List[Dict]:
-    rows = []
-    try:
-        xls = pd.ExcelFile(file_obj)
-    except Exception as e:
-        st.error(f"تعذّر فتح {file_name}: {e}")
-        return rows
-        
-    sheets = xls.sheet_names if not selected_sheets else [s for s in xls.sheet_names if s in selected_sheets]
+def parse_due_date_cell(cell, default_year: int = None) -> Optional[date]:
+    """
+    معالجة محسّنة للتواريخ من خلايا Excel
+    ✅ يدعم: "2 أكتوبر"، "أكتوبر 19"، "19-10"، إلخ
     
-    for sh in sheets:
+    Args:
+        cell: قيمة الخلية (قد تكون نص، رقم، تاريخ)
+        default_year: السنة الافتراضية إذا لم تُحدد
+    
+    Returns:
+        Optional[date]: التاريخ المعالج أو None
+    """
+    if default_year is None:
+        default_year = date.today().year
+    
+    # معالجة القيم الفارغة
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return None
+    
+    # معالجة التواريخ الجاهزة
+    if isinstance(cell, (pd.Timestamp, datetime)):
         try:
-            # قراءة أول 4 صفوف فقط لتحديد التقييمات المستحقة
-            raw = pd.read_excel(xls, sheet_name=sh, header=None)
-            if raw.empty:
-                st.warning(f"الشيت '{sh}' فارغ في {file_name}"); continue
-                
-            # الصف 0: أسماء التقييمات (Evaluation Titles)
-            # الصف 2: تواريخ الاستحقاق (Due Dates)
+            return cell.date() if hasattr(cell, 'date') else cell
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"خطأ في تحويل timestamp: {e}")
+            return None
+    
+    # معالجة الأرقام (Excel serial dates)
+    if isinstance(cell, (int, float)) and not pd.isna(cell):
+        try:
+            if 1 <= cell <= 100000:
+                base = pd.to_datetime("1899-12-30")
+                result = base + pd.to_timedelta(float(cell), unit="D")
+                if 1900 <= result.year <= 2200:
+                    return result.date()
+        except (ValueError, OverflowError) as e:
+            logger.warning(f"خطأ في معالجة رقم تاريخ: {e}")
+    
+    # معالجة النصوص
+    try:
+        s = str(cell).strip()
+        if not s or s.lower() in ['nan', 'none', 'nat', 'null']:
+            return None
+        
+        s = _strip_invisible_and_diacritics(s)
+        s = _normalize_arabic_digits(s)
+        
+        if not s:
+            return None
+        
+        # قاموس الأشهر العربية الموسع
+        arabic_months = {
+            # يناير
+            "يناير": 1, "كانون الثاني": 1, "جانفي": 1, "ينايرJanuary": 1,
+            "jan": 1, "january": 1, "يناير": 1,
+            # فبراير
+            "فبراير": 2, "شباط": 2, "فيفري": 2, "فبرايرFebruary": 2,
+            "feb": 2, "february": 2, "فبراير": 2,
+            # مارس
+            "مارس": 3, "اذار": 3, "آذار": 3, "مارسMarch": 3,
+            "mar": 3, "march": 3, "مارس": 3,
+            # أبريل
+            "ابريل": 4, "أبريل": 4, "نيسان": 4, "افريل": 4, "ابريلApril": 4,
+            "apr": 4, "april": 4, "ابريل": 4,
+            # مايو
+            "مايو": 5, "ماي": 5, "ايار": 5, "أيار": 5, "مايوMay": 5,
+            "may": 5, "مايو": 5,
+            # يونيو
+            "يونيو": 6, "يونيه": 6, "حزيران": 6, "جوان": 6, "يونيوJune": 6,
+            "jun": 6, "june": 6, "يونيو": 6,
+            # يوليو
+            "يوليو": 7, "يوليه": 7, "تموز": 7, "جويلية": 7, "يوليوJuly": 7,
+            "jul": 7, "july": 7, "يوليو": 7,
+            # أغسطس
+            "اغسطس": 8, "أغسطس": 8, "اب": 8, "آب": 8, "اوت": 8, "اغسطسAugust": 8,
+            "aug": 8, "august": 8, "اغسطس": 8,
+            # سبتمبر
+            "سبتمبر": 9, "ايلول": 9, "أيلول": 9, "سبتمبرSeptember": 9,
+            "sep": 9, "sept": 9, "september": 9, "سبتمبر": 9,
+            # أكتوبر
+            "اكتوبر": 10, "أكتوبر": 10, "تشرين الاول": 10, "تشرين الأول": 10, "اكتوبرOctober": 10,
+            "oct": 10, "october": 10, "اكتوبر": 10,
+            # نوفمبر
+            "نوفمبر": 11, "تشرين الثاني": 11, "نونبر": 11, "نوفمبرNovember": 11,
+            "nov": 11, "november": 11, "نوفمبر": 11,
+            # ديسمبر
+            "ديسمبر": 12, "كانون الاول": 12, "كانون الأول": 12, "دجنبر": 12, "ديسمبرDecember": 12,
+            "dec": 12, "december": 12, "ديسمبر": 12,
+        }
+        
+        def normalize_hamza(text):
+            """توحيد الهمزات والألفات وتحويل للأحرف الصغيرة"""
+            text = str(text).lower().strip()
+            text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+            text = text.replace("ة", "ه").replace("ـ", "")
+            return text
+        
+        # ✅ نمط 1: "Oct 2" أو "2 Oct" (إنجليزي مختصر)
+        pattern_short = r"([a-zA-Z]{3,})\s*[-/،,\s]*\s*(\d{1,2})"
+        match_short = re.search(pattern_short, s, re.IGNORECASE)
+        
+        if match_short:
+            month_name = match_short.group(1).strip().lower()
+            day = int(match_short.group(2))
             
-            # 1. تحديد التقييمات المستحقة (Due Assessments)
-            # أعمدة التقييمات تبدأ من العمود H (العمود رقم 7)
+            # البحث عن الشهر
+            month = arabic_months.get(month_name)
             
-            # تحديد الأعمدة من H1 فصاعداً (H = 7)
-            assessment_cols_indices = [i for i in range(7, len(raw.columns))]
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        pass
+        
+        # ✅ نمط 2: "2 Oct" (عكس)
+        pattern_short_reverse = r"(\d{1,2})\s*[-/،,\s]*\s*([a-zA-Z]{3,})"
+        match_short_rev = re.search(pattern_short_reverse, s, re.IGNORECASE)
+        
+        if match_short_rev:
+            day = int(match_short_rev.group(1))
+            month_name = match_short_rev.group(2).strip().lower()
             
-            due_assessments = {} # {index: title}
+            month = arabic_months.get(month_name)
             
-            for c_idx in assessment_cols_indices:
-                # اسم التقييم في الصف 0
-                eval_title = arabic_cleanup(raw.iloc[0, c_idx])
-                
-                # تاريخ الاستحقاق في الصف 2
-                due_date_raw = raw.iloc[2, c_idx]
-                
-                if not eval_title: continue # تجاهل الأعمدة الفارغة
-                
-                # تحويل تاريخ الاستحقاق إلى تاريخ (Date)
-                due_date = pd.to_datetime(due_date_raw, errors='coerce').date() if pd.notna(due_date_raw) else None
-                
-                # شرط الاحتساب: يجب أن يكون تاريخ الاستحقاق موجودًا وأصغر من أو يساوي اليوم
-                if due_date and due_date <= TODAY:
-                    due_assessments[c_idx] = eval_title
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        pass
+        
+        # ✅ نمط 3: "أكتوبر 19" أو "19 أكتوبر" (عربي)
+        # يدعم: "اكتوبر 19"، "19 اكتوبر"
+        pattern1 = r"(\d{1,2})\s*[-/،,\s]*\s*([^\d\s]+)"
+        match1 = re.search(pattern1, s)
+        
+        if match1:
+            day = int(match1.group(1))
+            month_name = match1.group(2).strip()
             
-            if not due_assessments:
-                st.info(f"لا توجد تقييمات مستحقة (Due) في الشيت '{sh}' حتى تاريخ اليوم ({TODAY}).")
+            # البحث عن الشهر مع تطبيع
+            month = arabic_months.get(normalize_hamza(month_name))
+            
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    # إذا كان اليوم غير صالح، استخدم يوم آمن
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        logger.warning(f"تاريخ غير صالح: {day}/{month}/{default_year}")
+        
+        # ✅ نمط 4: "أكتوبر 19" (عكس)
+        pattern2 = r"([^\d\s]+)\s*[-/،,\s]*\s*(\d{1,2})"
+        match2 = re.search(pattern2, s)
+        
+        if match2:
+            month_name = match2.group(1).strip()
+            day = int(match2.group(2))
+            
+            month = arabic_months.get(normalize_hamza(month_name))
+            
+            if month:
+                try:
+                    result_date = date(default_year, month, day)
+                    logger.debug(f"✅ تم تحليل التاريخ: '{s}' → {result_date}")
+                    return result_date
+                except ValueError:
+                    safe_day = min(day, 28)
+                    try:
+                        return date(default_year, month, safe_day)
+                    except ValueError:
+                        logger.warning(f"تاريخ غير صالح: {day}/{month}/{default_year}")
+        
+        # ✅ نمط 5: محاولة pandas (للتواريخ الرقمية)
+        try:
+            parsed = pd.to_datetime(s, dayfirst=True, errors="coerce")
+            if pd.notna(parsed):
+                result_date = parsed.date()
+                if parsed.year < 1900:
+                    result_date = result_date.replace(year=default_year)
+                logger.debug(f"✅ تم تحليل التاريخ (pandas): '{s}' → {result_date}")
+                return result_date
+        except Exception:
+            pass
+    
+    except Exception as e:
+        logger.warning(f"فشل في معالجة التاريخ '{cell}': {e}")
+    
+    # إذا فشل كل شيء
+    logger.debug(f"⚠️ لم يتم التعرف على التاريخ: '{cell}'")
+    return None
+
+def in_range(d: Optional[date], start: Optional[date], end: Optional[date]) -> bool:
+    """التحقق من وقوع التاريخ في النطاق المحدد"""
+    if not (start and end):
+        return True
+    if d is None:
+        return False
+    if start > end:
+        start, end = end, start
+    return start <= d <= end
+
+# ============== دوال التحقق من البيانات ==============
+
+def validate_excel_structure(df: pd.DataFrame, sheet_name: str) -> Tuple[bool, str]:
+    """
+    التحقق من صحة بنية ملف Excel
+    
+    Returns:
+        Tuple[bool, str]: (هل صالح؟, رسالة الخطأ إن وُجد)
+    """
+    if df is None or df.empty:
+        return False, "الملف فارغ"
+    
+    if df.shape[0] < 4:
+        return False, f"عدد الصفوف قليل جداً ({df.shape[0]} صف)"
+    
+    if df.shape[1] < 8:
+        return False, f"عدد الأعمدة قليل جداً ({df.shape[1]} عمود)"
+    
+    # التحقق من وجود أسماء الطلاب
+    student_col = df.iloc[4:, 0].dropna()
+    if len(student_col) == 0:
+        return False, "لا توجد أسماء طلاب في العمود الأول"
+    
+    return True, ""
+
+# ============== إعداد التطبيق ==============
+
+def setup_app():
+    """إعداد واجهة Streamlit"""
+    APP_TITLE = "إنجاز - تحليل التقييمات الأسبوعية على نظام قطر للتعليم"
+
+    st.set_page_config(
+        page_title=APP_TITLE,
+        page_icon="https://i.imgur.com/XLef7tS.png",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # إعداد session state
+    defaults = {
+        "analysis_results": None,
+        "pivot_table": None,
+        "font_info": None,
+        "logo_path": None,
+        "selected_sheets": [],
+        "analysis_stats": {},
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    if st.session_state.font_info is None:
+        st.session_state.font_info = prepare_default_font()
+
+    # تطبيق الأنماط CSS
+    apply_custom_styles()
+    
+    # عرض الهيدر
+    render_header(APP_TITLE)
+
+def apply_custom_styles():
+    """تطبيق أنماط CSS المخصصة"""
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+    * { font-family: 'Cairo','Segoe UI',-apple-system,sans-serif; direction: rtl; }
+    .main, body, .stApp { background:#fff; direction: rtl; }
+    
+    section[data-testid="stSidebar"] {
+        right: 0 !important;
+        left: auto !important;
+    }
+    
+    .main .block-container {
+        padding-right: 5rem !important;
+        padding-left: 1rem !important;
+    }
+    
+    .header-container{
+      background:linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
+      padding:44px 36px;color:#fff;text-align:center;margin-bottom:18px;
+      border-bottom:4px solid #C9A646;box-shadow:0 6px 20px rgba(138,21,56,.25);position:relative;
+      direction: rtl;
+    }
+    .header-container::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
+      background:linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%)}
+    .header-container h1{margin:0 0 6px 0;font-size:32px;font-weight:800}
+    .header-container .subtitle{font-size:15px;font-weight:700;margin:0 0 4px}
+    .header-container .accent-line{font-size:12px;color:#C9A646;font-weight:700;margin:0 0 6px}
+    .header-container .description{font-size:12px;opacity:.95;margin:0}
+
+    [data-testid="stSidebar"]{
+      background:linear-gradient(180deg, #8A1538 0%, #6B1029 100%)!important;
+      border-left:2px solid #C9A646;box-shadow:-4px 0 16px rgba(0,0,0,.15);
+      direction: rtl;
+    }
+    [data-testid="stSidebar"] *{ color:#fff !important; }
+    [data-testid="stSidebar"] > div:first-child { direction: rtl; }
+
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] select {
+      color:#000 !important; background:#fff !important; caret-color:#000 !important;
+      text-align: right;
+    }
+    [data-testid="stSidebar"] div[role="combobox"] input{ color:#000 !important; background:#fff !important; }
+    [data-testid="stSidebar"] .stTextInput input,
+    [data-testid="stSidebar"] .stNumberInput input{ color:#000 !important; background:#fff !important; text-align: right; }
+    [data-testid="stSidebar"] ::placeholder{ color:#444 !important; opacity:1 !important; }
+    [data-testid="stSidebar"] .stTextInput > div > div,
+    [data-testid="stSidebar"] .stNumberInput > div > div{ border:1px solid rgba(0,0,0,.2) !important; box-shadow:none !important; }
+
+    /* ✅ تلوين زر Browse files */
+    [data-testid="stSidebar"] button[kind="secondary"] {
+        background-color: #8A1538 !important;
+        color: white !important;
+        border: 2px solid #C9A646 !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stSidebar"] button[kind="secondary"]:hover {
+        background-color: #6B1029 !important;
+        border-color: #E8D4A0 !important;
+    }
+    [data-testid="stFileUploader"] section button {
+        background-color: #8A1538 !important;
+        color: white !important;
+        border: 2px solid #C9A646 !important;
+    }
+
+    .chart-container{background:#fff;border:2px solid #E5E7EB;border-right:5px solid #8A1538;
+      border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+    .chart-title{font-size:20px;font-weight:800;color:#8A1538;text-align:center;margin-bottom:10px}
+
+    .footer{margin-top:22px;background:linear-gradient(135deg, #8A1538 0%, #6B1029 100%);
+      color:#fff;border-radius:10px;padding:20px 15px;text-align:center;box-shadow:0 6px 18px rgba(138,21,56,.20);position:relative}
+    .footer .line{width:100%;height:3px;background:linear-gradient(90deg, #C9A646 0%, #E8D4A0 50%, #C9A646 100%);
+      position:absolute;top:0;left:0}
+    .footer .school-ar{font-weight:800;font-size:16px;margin:8px 0 4px;letter-spacing:0.5px}
+    .footer .school-en{font-weight:600;font-size:13px;margin:0 0 10px;opacity:0.95;font-style:italic}
+    .footer .copyright{font-weight:700;font-size:12px;margin:8px 0 4px;opacity:.95}
+    .footer .dev-ar{font-size:13px;margin:4px 0;font-weight:600}
+    .footer .dev-en{font-size:11px;margin:0 0 8px;opacity:0.9;font-style:italic}
+    .footer .contact{font-size:13px;margin:8px 0;padding:8px;background:rgba(201,166,70,0.15);border-radius:6px}
+    .footer .contact a{color:#E8D4A0;font-weight:700;text-decoration:none;border-bottom:1px solid #C9A646}
+    .footer .vision{margin:12px 0 6px;font-size:14px;font-weight:700;color:#C9A646;padding:10px;
+      background:rgba(255,255,255,0.1);border-radius:8px;border:2px solid rgba(201,166,70,0.3)}
+    
+    .stRadio > div { direction: rtl; justify-content: flex-end; }
+    .stCheckbox > label { direction: rtl; }
+    .stSelectbox > div > div { direction: rtl; text-align: right; }
+    
+    /* إضافة: مؤشر التحميل */
+    .stProgress > div > div { background: #8A1538 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+def render_header(title: str):
+    """عرض الهيدر الرئيسي"""
+    st.markdown(f"""
+    <div class='header-container'>
+      <div style='display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom: 10px;'>
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="40" height="40" rx="4" fill="#C9A646" opacity="0.15"/>
+          <path d="M12 32V24M18 32V20M24 32V16M30 32V22M36 32V18" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="12" cy="24" r="2.5" fill="#C9A646"/><circle cx="18" cy="20" r="2.5" fill="#C9A646"/>
+          <circle cx="24" cy="16" r="2.5" fill="#C9A646"/><circle cx="30" cy="22" r="2.5" fill="#C9A646"/>
+          <circle cx="36" cy="18" r="2.5" fill="#C9A646"/>
+          <path d="M12 24L18 20L24 16L30 22L36 18" stroke="#C9A646" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>{title}</h1>
+      </div>
+      <p class='subtitle'>لوحة مهنية لقياس التقدم وتحليل النتائج - النسخة المحسّنة 2.0</p>
+      <p class='accent-line'>هوية إنجاز • دعم العربية الكامل • أداء محسّن</p>
+      <p class='description'>المنطق الذكي: الشرطة = غير مستحق | M = متبقي | القيمة = منجز</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ============== دوال معالجة النصوص العربية ==============
+
+def rtl(text: str) -> str:
+    """تحويل النص للعرض من اليمين لليسار"""
+    if not isinstance(text, str):
+        text = str(text)
+    if AR_OK:
+        try:
+            return get_display(arabic_reshaper.reshape(text))
+        except Exception as e:
+            logger.warning(f"خطأ في معالجة RTL: {e}")
+            return text
+    return text
+
+# ============== دوال معالجة الملفات ==============
+
+@safe_execute(default_return=("", None), error_message="خطأ في إعداد الخط")
+def prepare_default_font() -> Tuple[str, Optional[str]]:
+    """إعداد الخط الافتراضي لـ PDF"""
+    font_name = "ARFont"
+    
+    # قائمة الخطوط المحتملة
+    font_candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+    ]
+    
+    for candidate in font_candidates:
+        if os.path.exists(candidate):
+            logger.info(f"✅ تم العثور على خط: {candidate}")
+            return font_name, candidate
+    
+    logger.warning("⚠️ لم يتم العثور على خط مناسب")
+    return "", None
+
+@safe_execute(default_return=None, error_message="خطأ في معالجة الشعار")
+def prepare_logo_file(logo_file) -> Optional[str]:
+    """حفظ شعار المدرسة مؤقتاً"""
+    if logo_file is None:
+        return None
+    
+    # التحقق من نوع الملف
+    ext = os.path.splitext(logo_file.name)[1].lower()
+    if ext not in [".png", ".jpg", ".jpeg"]:
+        st.warning("⚠️ يرجى رفع شعار بصيغة PNG أو JPG")
+        return None
+    
+    # حفظ الملف
+    path = f"/tmp/school_logo{ext}"
+    logo_file.seek(0)  # ✅ إعادة تعيين مؤشر الملف
+    
+    with open(path, "wb") as f:
+        f.write(logo_file.read())
+    
+    logger.info(f"✅ تم حفظ الشعار: {path}")
+    return path
+
+# ============== دوال تحليل Excel ==============
+
+def parse_sheet_name(sheet_name: str) -> Tuple[str, str, str]:
+    """استخراج المادة والصف والشعبة من اسم الورقة"""
+    try:
+        parts = sheet_name.strip().split()
+        if len(parts) < 3:
+            return sheet_name.strip(), "", ""
+        
+        section = parts[-1]
+        level = parts[-2]
+        subject = " ".join(parts[:-2])
+        
+        # التحقق من صحة الصف
+        if not (level.isdigit() or (level.startswith('0') and len(level) <= 2)):
+            subject = " ".join(parts[:-1])
+            level = parts[-1]
+            section = ""
+        
+        return subject, level, section
+    except Exception as e:
+        logger.warning(f"خطأ في معالجة اسم الورقة '{sheet_name}': {e}")
+        return sheet_name, "", ""
+
+@st.cache_data(ttl=3600, max_entries=10, show_spinner=False)
+@log_performance
+def analyze_excel_file(
+    file, 
+    sheet_name: str, 
+    due_start: Optional[date] = None, 
+    due_end: Optional[date] = None
+) -> List[Dict[str, Any]]:
+    """
+    تحليل محسّن لورقة Excel مع معالجة أخطاء أفضل
+    ✅ حل مشكلة تكرار الطلاب في نفس المادة
+    
+    Returns:
+        List[Dict]: قائمة ببيانات الطلاب
+    """
+    try:
+        # قراءة الملف
+        df = pd.read_excel(file, sheet_name=sheet_name, header=None)
+        
+        # التحقق من البنية
+        is_valid, error_msg = validate_excel_structure(df, sheet_name)
+        if not is_valid:
+            st.error(f"❌ الورقة '{sheet_name}': {error_msg}")
+            return []
+        
+        subject, level_from_name, section_from_name = parse_sheet_name(sheet_name)
+        
+        # إعداد الفلترة
+        filter_active = (due_start is not None and due_end is not None)
+        if filter_active and due_start > due_end:
+            due_start, due_end = due_end, due_start
+        
+        # استخراج أعمدة التقييم
+        assessment_columns = []
+        skipped_reasons = []
+        columns_without_dates = 0
+        
+        for c in range(7, df.shape[1]):
+            # العنوان
+            title = df.iloc[0, c] if c < df.shape[1] else None
+            if pd.isna(title):
+                break
+            
+            t = str(title).strip()
+            
+            # تجاهل الأعمدة بعنوان فارغ فقط
+            if not t or t in ['_', 'Unnamed']:
+                skipped_reasons.append(f"عمود {c+1} - عنوان فارغ")
                 continue
             
-            # 2. معالجة بيانات الطلاب (تبدأ من الصف 3)
-            subject, grade, section = parse_sheet_subject(sh)
-            
-            # الصف 3 هو بداية بيانات الطلاب
-            first_student_row = 3
-            
-            # العمود 0 هو اسم الطالب
-            
-            for r in range(first_student_row, len(raw)):
-                row = raw.iloc[r]
-                student_name = arabic_cleanup(row[0]) if 0 in raw.columns else ""
+            # معالجة التاريخ
+            due_dt = None
+            if filter_active:
+                due_cell = df.iloc[2, c] if 2 < df.shape[0] and c < df.shape[1] else None
+                due_dt = parse_due_date_cell(due_cell, default_year=date.today().year)
                 
-                if len(student_name) < 2: continue # تجاهل الصفوف الفارغة أو غير الصالحة
-                
-                for c_idx, eval_name in due_assessments.items():
-                    if c_idx < len(row):
-                        # تحديد ما إذا كان التقييم منجزًا (Completed)
-                        is_solved = is_completed(row[c_idx])
-                        
-                        rows.append({
-                            "student_name": student_name,
-                            "student_name_norm": normalize_name(student_name),
-                            "student_id": "", # يُفترض أن يكون في العمود 1 إذا وجد
-                            "subject": subject,
-                            "evaluation": eval_name,
-                            "solved": 1 if is_solved else 0,
-                            "class": grade,
-                            "section": section,
-                            "teacher_email": "" # سيتم ملؤه لاحقًا
-                        })
-                        
-        except Exception as e:
-            st.warning(f"تعذّر قراءة '{sh}' في {file_name}: {e}")
+                if due_dt is None:
+                    columns_without_dates += 1
+                else:
+                    if not in_range(due_dt, due_start, due_end):
+                        skipped_reasons.append(f"'{t}' - خارج النطاق ({due_dt})")
+                        continue
             
-    return rows
-
-def _load_teachers_df(file) -> Optional[pd.DataFrame]:
-    """يرفع ملف المعلمات ويعيد DataFrame موحّد الأعمدة: الشعبة، اسم المعلمة، البريد الإلكتروني
-       يدعم CSV وXLSX."""
-    if file is None:
-        return None
-
-    name = file.name.lower()
-
-    # 1) قراءة الملف حسب الامتداد
-    try:
-        if name.endswith(".csv"):
-            tdf = pd.read_csv(file)
-        elif name.endswith(".xlsx"):
-            tdf = pd.read_excel(file, engine="openpyxl")
-        elif name.endswith(".xls"):
-            # نحاول xlrd .. وإن لم توجد نطلب من المستخدم التحويل
-            try:
-                import xlrd  # noqa: F401
-                tdf = pd.read_excel(file, engine="xlrd")
-            except Exception:
-                st.error(
-                    "هذا الملف بصيغة .xls ويتطلب حزمة xlrd غير متوفرة.\n"
-                    "فضلاً احفظي الملف كـ **.xlsx** أو **.csv** ثم ارفعيه مجددًا."
+            # ✅ التحقق المحسّن: العمود صالح حتى لو كان كله "-"
+            # نتحقق فقط من أن العمود ليس فارغاً تماماً (NaN فقط)
+            has_any_value = False
+            for r in range(4, min(len(df), 50)):
+                if r >= df.shape[0] or c >= df.shape[1]:
+                    break
+                val = df.iloc[r, c]
+                if pd.notna(val):  # ✅ أي قيمة (حتى "-") تعتبر صالحة
+                    has_any_value = True
+                    break
+            
+            if not has_any_value:
+                skipped_reasons.append(f"'{t}' - عمود فارغ تماماً (NaN)")
+                continue
+            
+            # ✅ نضيف العمود حتى لو كان كله "-"
+            assessment_columns.append({
+                'index': c,
+                'title': t,
+                'due_date': due_dt,
+                'has_date': due_dt is not None
+            })
+        
+        # رسائل المعلومات
+        if not assessment_columns:
+            st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على أعمدة تقييم صالحة")
+            if skipped_reasons:
+                with st.expander(f"📋 الأعمدة المتجاهلة ({len(skipped_reasons)})"):
+                    for reason in skipped_reasons[:15]:
+                        st.text(f"  • {reason}")
+            return []
+        
+        cols_with_dates = sum(1 for c in assessment_columns if c['has_date'])
+        
+        info_msg = f"✅ الورقة '{sheet_name}': وُجد {len(assessment_columns)} عمود تقييم"
+        if filter_active:
+            info_msg += f" ({cols_with_dates} ضمن النطاق"
+            if columns_without_dates > 0:
+                info_msg += f"، {columns_without_dates} بدون تاريخ"
+            info_msg += ")"
+        
+        st.success(info_msg)
+        
+        # ✅ عرض التواريخ المكتشفة للتأكد
+        if filter_active and cols_with_dates > 0:
+            with st.expander(f"📅 التواريخ المكتشفة في '{sheet_name}'"):
+                for col in assessment_columns[:10]:  # عرض أول 10
+                    if col['has_date']:
+                        st.text(f"  ✅ {col['title']}: {col['due_date']}")
+                    else:
+                        st.text(f"  ⚠️ {col['title']}: لا يوجد تاريخ")
+        
+        if skipped_reasons and len(skipped_reasons) > 0:
+            with st.expander(f"ℹ️ تم تجاهل {len(skipped_reasons)} عمود"):
+                for reason in skipped_reasons[:10]:
+                    st.text(f"  • {reason}")
+        
+        # ✅ تحليل بيانات الطلاب مع دمج الصفوف المكررة
+        student_data_dict = {}  # {student_name: {total, done, pending}}
+        NOT_DUE = {'-', '—', '–', '', 'NAN', 'NONE'}
+        
+        students_count = 0
+        rows_processed = 0
+        
+        for r in range(4, len(df)):
+            student = df.iloc[r, 0]
+            if pd.isna(student) or str(student).strip() == "":
+                continue
+            
+            # تنظيف اسم الطالب
+            name = " ".join(str(student).strip().split())
+            rows_processed += 1
+            
+            # ✅ إنشاء مفتاح فريد للطالب (الاسم فقط، لأن المادة واحدة)
+            if name not in student_data_dict:
+                student_data_dict[name] = {
+                    'total': 0,
+                    'done': 0,
+                    'pending': []
+                }
+                students_count += 1
+            
+            # معالجة التقييمات لهذا الصف
+            for col in assessment_columns:
+                c = col['index']
+                title = col['title']
+                
+                if c >= df.shape[1]:
+                    continue
+                
+                raw = df.iloc[r, c]
+                s = "" if pd.isna(raw) else str(raw).strip().upper()
+                
+                # الشرطة = غير مستحق (لا يُحسب)
+                if s in NOT_DUE:
+                    continue
+                
+                # M = مستحق غير منجز
+                if s == 'M':
+                    student_data_dict[name]['total'] += 1
+                    if title not in student_data_dict[name]['pending']:
+                        student_data_dict[name]['pending'].append(title)
+                    continue
+                
+                # أي قيمة أخرى = منجز
+                student_data_dict[name]['total'] += 1
+                student_data_dict[name]['done'] += 1
+        
+        # ✅ تحويل القاموس إلى قائمة نتائج
+        results = []
+        for name, data in student_data_dict.items():
+            total = data['total']
+            done = data['done']
+            pending = data['pending']
+            
+            if total == 0:
+                continue
+            
+            pct = (done / total * 100) if total > 0 else 0.0
+            
+            results.append({
+                "student_name": name,
+                "subject": subject,
+                "level": str(level_from_name).strip(),
+                "section": str(section_from_name).strip(),
+                "solve_pct": round(pct, 1),
+                "completed_count": int(done),
+                "total_count": int(total),
+                "pending_titles": ", ".join(pending) if pending else "-",
+                "sheet_name": sheet_name
+            })
+        
+        # رسائل المعلومات النهائية
+        if results:
+            if rows_processed > students_count:
+                st.info(
+                    f"📊 تم معالجة {rows_processed} صف، "
+                    f"دُمجت البيانات إلى {students_count} طالب فريد"
                 )
-                return None
-            
+            else:
+                st.info(f"📊 تم تحليل {len(results)} طالب")
         else:
-            st.error("صيغة الملف غير مدعومة. ارفعي ملفًا بصيغة **CSV** أو **XLSX**.")
-            return None
+            st.warning(f"⚠️ الورقة '{sheet_name}': لم يتم العثور على طلاب بتقييمات مستحقة")
+        
+        return results
+    
     except Exception as e:
-        st.error(f"❌ قراءة ملف المعلمات فشلت: {e}")
-        return None
+        st.error(f"❌ خطأ في تحليل الملف '{sheet_name}': {e}")
+        import traceback
+        with st.expander("🔍 تفاصيل الخطأ التقنية"):
+            st.code(traceback.format_exc())
+        return []
 
-    # 2) توحيد أسماء الأعمدة (مرن مع الاختلافات)
-    def _norm_header(x: str) -> str:
-        x = _strip_invisible_and_diacritics(str(x)).lower()
-        x = x.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ة","ه")
-        # إزالة كل الرموز غير الحروف/الأرقام لتسهيل المطابقة
-        return re.sub(r"[^0-9a-z\u0600-\u06FF]+", "", x)
+# ============== دوال الجداول المحورية ==============
 
-    cols_map = {c: _norm_header(c) for c in tdf.columns}
+def get_recommendation_by_category(category: str, student_name: str = "") -> str:
+    """
+    الحصول على التوصية المناسبة حسب فئة الطالب
+    
+    Args:
+        category: الفئة (بلاتيني، ذهبي، إلخ)
+        student_name: اسم الطالب (اختياري)
+    
+    Returns:
+        str: نص التوصية
+    """
+    recommendations = {
+        'بلاتيني 🥇': f"""🏆 الفئة البلاتينية (Platinum)
 
-    def find_col(possible_keys: List[str]) -> Optional[str]:
-        norm_keys = [_norm_header(k) for k in possible_keys]
-        for original, normed in cols_map.items():
-            if normed in norm_keys:
-                return original
-        return None
+عزيزي الطالب {student_name if student_name else ''}، نُقدّر لك تميزك البلاتيني وجهودك الكبيرة في متابعة التقييمات الأسبوعية عبر نظام قطر للتعليم. 
 
-    # تم تعديل مفاتيح البحث لتكون أكثر شمولاً
-    sec_col  = find_col(["الشعبة", "شعبة", "section", "القسم", "صف", "الصف", "الصف والشعبة"])
-    name_col = find_col(["اسم المعلمة", "المعلمة", "Teacher", "teacher",
-                         "اسم المعلم", "المعلم", "اسم المعلمه", "المعلم المسؤول"])
-    mail_col = find_col(["البريد الإلكتروني", "البريد الالكتروني", "البريد",
-                         "email", "e-mail", "ايميل", "الايميل", "بريد المعلم"])
+استمر على هذا النهج الرائع، فأنت مثال يُحتذى به في الجد والاجتهاد. نتمنى لك دوام التوفيق والنجاح.
 
-    if not (sec_col and name_col and mail_col):
-        st.error("❌ يجب أن يحتوي الملف على أعمدة: **الشعبة**، **اسم المعلمة**، **البريد الإلكتروني**.")
-        with st.expander("الأعمدة التي تم اكتشافها"):
-            st.write(list(tdf.columns))
-        return None
+✨ أنت نجم ساطع في سماء التميز!""",
 
-    tdf = tdf[[sec_col, name_col, mail_col]].rename(columns={
-        sec_col:  "الشعبة",
-        name_col: "اسم المعلمة",
-        mail_col: "البريد الإلكتروني"
-    })
+        'ذهبي 🥈': f"""🥇 الفئة الذهبية (Gold)
 
-    # 3) تنظيف القيم
-    tdf["الشعبة"] = (tdf["الشعبة"].astype(str)
-                      .apply(_strip_invisible_and_diacritics)
-                      .map(_normalize_arabic_digits)
-                      .str.strip())
-    tdf["اسم المعلمة"]      = tdf["اسم المعلمة"].astype(str).str.strip()
-    tdf["البريد الإلكتروني"] = tdf["البريد الإلكتروني"].astype(str).str.strip()
+طالبنا المتميز {student_name if student_name else ''}، نشكرك على أدائك الذهبي وإنجازاتك المشرّفة في التقييمات. 
 
-    return tdf
+نحثك على الاستمرار وتفعيل نظام قطر للتعليم بانتظام لتصل إلى أعلى المراتب. أنت قادر على بلوغ القمة.
 
-# --------- أهم رقعة: ضمان uid دائمًا ---------
-def ensure_uid(df: pd.DataFrame) -> pd.DataFrame:
-    """يضمن وجود uid، وتوحيد الصف/الشعبة، وإزالة التكرار الأساسي."""
-    if "student_name_norm" not in df.columns:
-        df["student_name_norm"] = df.get("student_name", "").astype(str).apply(normalize_name)
+💪 خطوة واحدة تفصلك عن البلاتين!""",
 
-    df["student_id"] = df.get("student_id", "").fillna("").astype(str).str.strip()
-    uid = df["student_id"].copy()
-    mask = (uid == "")
-    uid[mask] = df.loc[mask, "student_name_norm"].astype(str)
-    df["uid"] = uid
+        'فضي 🥉': f"""🥈 الفئة الفضية (Silver)
 
-    df["class"]   = df.get("class","").fillna("").astype(str).str.strip()
-    df["section"] = df.get("section","").fillna("").astype(str).str.strip()
-    # توحيد تنسيق الصف ليكون رقمين (مثل 07)
-    df["class"] = df["class"].str.replace(r"المستوى\s*(\d)", r"المستوى 0\1", regex=True)
+نشكرك {student_name if student_name else ''} على اجتهادك الذي أهّلك للفئة الفضية. 
 
-    # إزالة تكرار نفس (uid, subject, evaluation)
-    if {"subject","evaluation","solved"}.issubset(df.columns):
-        df = (df.sort_values(["uid","subject","evaluation","solved"],
-                             ascending=[True,True,True,False])
-                .drop_duplicates(subset=["uid","subject","evaluation"], keep="first"))
-    return df
+نثق بقدرتك على الوصول لمستويات أعلى من خلال المزيد من التركيز وتفعيل نظام قطر للتعليم بصورة مستمرة. 
 
-# --------- Pivot/ملخص يعتمد uid ---------
-def build_summary_pivot(df: pd.DataFrame, teachers_df: Optional[pd.DataFrame], thresholds: Dict[str,int]):
+📚 اجتهادك اليوم هو نجاحك غدًا.""",
+
+        'برونزي': f"""🥉 الفئة البرونزية (Bronze)
+
+طالبنا العزيز {student_name if student_name else ''}، نُقدّر جهدك الذي مكّنك من الوصول إلى الفئة البرونزية. 
+
+لديك القدرة على تحقيق إنجازات أكبر بالمتابعة الجادة وتفعيل نظام قطر للتعليم بانتظام. 
+
+🚀 استمر في المحاولة، فكل خطوة تقرّبك من التميز.""",
+
+        'بحاجة لتحسين': f"""⚠️ يحتاج إلى تحسين (Needs Improvement)
+
+نثق أن لديك {student_name if student_name else ''} إمكانيات كبيرة تحتاج فقط إلى مزيد من الالتزام. 
+
+نحثّك على الاستفادة من نظام قطر للتعليم والمتابعة المستمرة للتقييمات الأسبوعية. 
+
+💡 تذكّر أن بداية التميّز تكون بخطوة جادة نحو تحسين أدائك، ونحن على ثقة أنك قادر على ذلك.""",
+
+        'لا يستفيد': f"""🚫 لا يستفيد من النظام (Not Benefiting from the System)
+
+عزيزي الطالب {student_name if student_name else ''}، نلاحظ أنك لم تستفد بعد من نظام قطر للتعليم كما يجب. 
+
+ندعوك للبدء فورًا في تفعيل النظام والاستفادة من موارده، فهو وسيلتك الأساسية لتحقيق النجاح والتقدّم. 
+
+🤝 نحن هنا لدعمك وتشجيعك على الانطلاق. لا تتردد في طلب المساعدة!"""
+    }
+    
+    return recommendations.get(category, 
+        f"طالبنا العزيز {student_name if student_name else ''}، نشجعك على الاستمرار في المتابعة وتحقيق الأفضل."
+    )
+
+def risk_score(row):
+    """
+    حساب درجة الخطر للطالب
+    
+    Args:
+        row: صف الطالب من الجدول المحوري
+    
+    Returns:
+        int: درجة خطر من 0-100
+    """
+    # الأساس: 100 - متوسط الإنجاز
+    base = 100 - float(row.get("المتوسط", 0) or 0)
+    
+    # إضافة وزن للمتبقيات
+    pending_cols = [c for c in row.index if "متبقي" in c]
+    
+    def _to_int(x):
+        try:
+            return int(str(x).split()[0])
+        except:
+            return 0
+    
+    pending_total = sum(_to_int(row[c]) for c in pending_cols if pd.notna(row[c]))
+    
+    # المعادلة: الأساس + (5 × عدد المتبقيات)
+    score = base + 5 * pending_total
+    
+    # تقييد القيمة بين 0-100
+    return max(0, min(100, score))
+
+def quick_tip(row):
+    """
+    نصيحة سريعة حسب درجة الخطر
+    
+    Args:
+        row: صف الطالب من الجدول المحوري
+    
+    Returns:
+        str: نصيحة للمتابعة
+    """
+    r = row.get("خطر", 0)
+    
+    if r >= 70:
+        return "⚠️ تواصل فوري مع وليّ الأمر وجدولة دعم هذا الأسبوع."
+    elif r >= 40:
+        return "⚡ خطة متابعة: إتمام تقييمين متأخرين خلال 3 أيام."
+    else:
+        return "✅ استمرار بنفس الوتيرة مع مكافأة تحفيزية."
+
+def categorize_performance(percent: float) -> str:
+    """تصنيف الأداء بناءً على النسبة - نسخة محسّنة"""
+    if pd.isna(percent):
+        return 'لا يستفيد'
+    elif percent == 0:
+        return 'لا يستفيد'
+    elif percent >= 90:
+        return 'بلاتيني 🥇'
+    elif percent >= 80:
+        return 'ذهبي 🥈'
+    elif percent >= 70:
+        return 'فضي 🥉'
+    elif percent >= 60:
+        return 'برونزي'
+    else:
+        return 'بحاجة لتحسين'
+
+def categorize_vectorized(series: pd.Series) -> pd.Series:
+    """تصنيف سريع باستخدام numpy - vectorized"""
+    conditions = [
+        series >= 90,
+        (series >= 80) & (series < 90),
+        (series >= 70) & (series < 80),
+        (series >= 60) & (series < 70),
+        (series > 0) & (series < 60),
+        series == 0
+    ]
+    
+    choices = [
+        'بلاتيني 🥇',
+        'ذهبي 🥈',
+        'فضي 🥉',
+        'برونزي',
+        'بحاجة لتحسين',
+        'لا يستفيد'
+    ]
+    
+    return pd.Series(
+        np.select(conditions, choices, default='لا يستفيد'),
+        index=series.index
+    )
+
+@st.cache_data(show_spinner=False)
+@log_performance
+def create_pivot_table(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    إنشاء جدول محوري محسّن من بيانات التحليل
+    ✅ حل مشكلة التكرار نهائياً
+    """
+    try:
+        if df is None or df.empty:
+            logger.warning("لا توجد بيانات لإنشاء جدول محوري")
+            return pd.DataFrame()
+        
+        logger.info(f"🔄 بدء معالجة {len(df)} سجل")
+        
+        # ✅ خطوة 1: حذف التكرارات الأولية
+        initial_count = len(df)
+        dfc = df.drop_duplicates(
+            subset=['student_name', 'level', 'section', 'subject'],
+            keep='last'
+        )
+        
+        if len(dfc) < initial_count:
+            logger.info(f"🧹 تم حذف {initial_count - len(dfc)} سجل مكرر (نفس الطالب + المادة)")
+        
+        # ✅ خطوة 2: حذف تكرار الأوراق
+        if 'sheet_name' in dfc.columns:
+            before = len(dfc)
+            dfc = dfc.drop_duplicates(
+                subset=['student_name', 'level', 'section', 'sheet_name'],
+                keep='last'
+            )
+            if len(dfc) < before:
+                logger.info(f"🧹 تم حذف {before - len(dfc)} سجل مكرر (نفس الورقة)")
+        
+        # ✅ خطوة 3: استخراج الطلاب الفريدين
+        unique_students = dfc[['student_name', 'level', 'section']].drop_duplicates()
+        unique_students = unique_students.sort_values(
+            ['level', 'section', 'student_name']
+        ).reset_index(drop=True)
+        
+        st.info(f"👥 عدد الطلاب الفريدين: {len(unique_students)}")
+        
+        result = unique_students.copy()
+        
+        # ✅ خطوة 4: معالجة كل مادة على حدة
+        subjects = sorted(dfc['subject'].dropna().unique())
+        st.info(f"📚 المواد المكتشفة ({len(subjects)}): {', '.join(subjects)}")
+        
+        for subject in subjects:
+            # بيانات المادة
+            subject_data = dfc[dfc['subject'] == subject].copy()
+            
+            # حذف التكرار داخل المادة
+            subject_data = subject_data.drop_duplicates(
+                subset=['student_name', 'level', 'section'],
+                keep='last'
+            )
+            
+            # تأكد من القيم الرقمية
+            numeric_cols = ['total_count', 'completed_count', 'solve_pct']
+            for col in numeric_cols:
+                if col in subject_data.columns:
+                    subject_data[col] = pd.to_numeric(subject_data[col], errors='coerce').fillna(0)
+            
+            # إنشاء أعمدة المادة
+            subject_cols = subject_data[[
+                'student_name', 'level', 'section',
+                'total_count', 'completed_count', 'solve_pct'
+            ]].copy()
+            
+            subject_cols = subject_cols.rename(columns={
+                'total_count': f'{subject} - إجمالي',
+                'completed_count': f'{subject} - منجز',
+                'solve_pct': f'{subject} - النسبة'
+            })
+            
+            # دمج البيانات
+            result = result.merge(
+                subject_cols,
+                on=['student_name', 'level', 'section'],
+                how='left'
+            )
+            
+            # إضافة عمود المتبقي
+            pending_data = subject_data[[
+                'student_name', 'level', 'section', 'pending_titles'
+            ]].copy()
+            pending_data = pending_data.rename(columns={
+                'pending_titles': f'{subject} - متبقي'
+            })
+            
+            result = result.merge(
+                pending_data,
+                on=['student_name', 'level', 'section'],
+                how='left'
+            )
+        
+        # ✅ خطوة 5: حساب المتوسطات
+        pct_cols = [c for c in result.columns if 'النسبة' in c]
+        
+        if pct_cols:
+            # حساب متوسط فقط للقيم الموجودة
+            def calc_average(row):
+                values = row[pct_cols].replace(0, np.nan).dropna()
+                return values.mean() if len(values) > 0 else 0
+            
+            result['المتوسط'] = result.apply(calc_average, axis=1)
+            
+            # التصنيف السريع باستخدام vectorization
+            result['الفئة'] = categorize_vectorized(result['المتوسط'])
+        
+        # ✅ خطوة 6: إعادة تسمية الأعمدة
+        result = result.rename(columns={
+            'student_name': 'الطالب',
+            'level': 'الصف',
+            'section': 'الشعبة'
+        })
+        
+        # ✅ خطوة 7: تنظيف القيم
+        for c in result.columns:
+            if ('إجمالي' in c) or ('منجز' in c):
+                result[c] = result[c].fillna(0).astype(int)
+            elif ('النسبة' in c) or (c == 'المتوسط'):
+                result[c] = result[c].fillna(0).round(1)
+            elif 'متبقي' in c:
+                result[c] = result[c].fillna('-')
+        
+        # ✅ خطوة 8: التحقق النهائي من التكرار
+        before_final = len(result)
+        result = result.drop_duplicates(
+            subset=['الطالب', 'الصف', 'الشعبة'],
+            keep='first'
+        ).reset_index(drop=True)
+        
+        if before_final != len(result):
+            logger.warning(
+                f"⚠️ تم حذف {before_final - len(result)} صف مكرر في المرحلة النهائية"
+            )
+        
+        logger.info(f"✅ الجدول النهائي: {len(result)} طالب × {len(result.columns)} عمود")
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة البيانات: {e}")
+        import traceback
+        with st.expander("🔍 تفاصيل الخطأ"):
+            st.code(traceback.format_exc())
+        return pd.DataFrame()
+
+# ============== دوال المعالجة والتجميع ==============
+
+def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """تطبيع البيانات للرسوم البيانية"""
+    out = df.copy()
+    
+    # إعادة تسمية
+    if 'solve_pct' in out.columns:
+        out = out.rename(columns={'solve_pct': 'percent'})
+    if 'student_name' in out.columns:
+        out = out.rename(columns={'student_name': 'student'})
+    
+    # التصنيف
+    if 'percent' in out.columns:
+        out['category'] = categorize_vectorized(out['percent'])
+    
+    return out
+
+def aggregate_by_subject(df: pd.DataFrame) -> pd.DataFrame:
+    """تجميع البيانات حسب المادة والفئة"""
     if df.empty:
-        return pd.DataFrame(), []
+        return pd.DataFrame()
     
-    # 1. تأكيد uid
-    df = ensure_uid(df.copy())
-
-    # 2. إجماليات لكل (uid/مادة)
-    grp = (df.groupby(["uid","subject"], dropna=False)
-             .agg(solved=("solved","sum"), total=("solved","count"))
-             .reset_index())
-    subjects = sorted(grp["subject"].dropna().unique().tolist())
-
-    # 3. Pivot Table (إصلاح مشكلة KeyError: 'uid')
-    piv = grp.pivot_table(index=["uid"], columns="subject",
-                          values=["solved","total"], fill_value=0, aggfunc="sum").reset_index()
+    rows = []
     
-    # إصلاح تسمية الأعمدة بعد pivot_table
-    new_columns = []
-    for met, subj in piv.columns:
-        if subj == "":
-            new_columns.append("uid")
+    for s in df['subject'].dropna().unique():
+        sub = df[df['subject'] == s]
+        n = len(sub)
+        
+        # حساب المتوسط
+        avg = 0.0
+        if 'percent' in sub.columns:
+            avg = sub['percent'].mean() if n > 0 else 0.0
+            if pd.isna(avg):
+                avg = 0.0
+        
+        # حساب توزيع الفئات
+        for cat in CATEGORY_ORDER:
+            count = (sub['category'] == cat).sum() if 'category' in sub.columns else 0
+            pct = (count / n * 100) if n > 0 else 0.0
+            
+            rows.append({
+                'subject': s,
+                'category': cat,
+                'count': int(count),
+                'percent_share': round(pct, 1),
+                'avg_completion': round(avg, 1)
+            })
+    
+    agg = pd.DataFrame(rows)
+    
+    if agg.empty:
+        return agg
+    
+    # ترتيب المواد حسب متوسط الإنجاز
+    order = agg.groupby('subject')['avg_completion'].first().sort_values(
+        ascending=False
+    ).index.tolist()
+    
+    agg['subject'] = pd.Categorical(agg['subject'], categories=order, ordered=True)
+    return agg.sort_values('subject')
+
+# ============== دوال الرسوم البيانية ==============
+
+def chart_stacked_by_subject(agg_df: pd.DataFrame, mode='percent') -> go.Figure:
+    """رسم بياني مكدس حسب المادة مع تعريفات واضحة"""
+    fig = go.Figure()
+    
+    colors = [CATEGORY_COLORS[c] for c in CATEGORY_ORDER]
+    
+    for i, cat in enumerate(CATEGORY_ORDER):
+        d = agg_df[agg_df['category'] == cat]
+        
+        vals = d['percent_share'] if mode == 'percent' else d['count']
+        
+        # ✅ النصوص على الأعمدة - فقط إذا كانت القيمة > 5%
+        text = [
+            (f"{v:.1f}%" if mode == 'percent' else str(int(v))) if v > 5 else ""
+            for v in vals
+        ]
+        
+        # ✅ Hover محسّن مع معلومات أكثر
+        hover = (
+            "<b>المادة: %{y}</b><br>" +
+            f"<b>الفئة: {cat}</b><br>" +
+            ("النسبة: %{x:.1f}%<br>" if mode == 'percent' else "العدد: %{x}<br>") +
+            "<extra></extra>"
+        )
+        
+        fig.add_trace(go.Bar(
+            name=cat,
+            x=vals,
+            y=d['subject'],
+            orientation='h',
+            marker=dict(
+                color=colors[i],
+                line=dict(color='white', width=2)  # ✅ حد أوضح
+            ),
+            text=text,
+            textposition='inside',
+            textfont=dict(size=12, family='Cairo', color='white'),
+            hovertemplate=hover,
+            showlegend=True  # ✅ إظهار التعريف
+        ))
+    
+    fig.update_layout(
+        title=dict(
+            text="توزيع الفئات حسب المادة الدراسية",
+            font=dict(size=22, family='Cairo', color='#8A1538'),
+            x=0.5,
+            y=0.98
+        ),
+        xaxis=dict(
+            title="النسبة المئوية (%)" if mode == 'percent' else "عدد الطلاب",
+            titlefont=dict(size=14, family='Cairo'),
+            tickfont=dict(size=12, family='Cairo'),
+            gridcolor='#E5E7EB',
+            range=[0, 100] if mode == 'percent' else None
+        ),
+        yaxis=dict(
+            title="المادة",
+            titlefont=dict(size=14, family='Cairo'),
+            tickfont=dict(size=13, family='Cairo'),
+            autorange='reversed'
+        ),
+        # ✅ التعريف (Legend) محسّن
+        legend=dict(
+            title=dict(text="الفئات", font=dict(size=14, family='Cairo', color='#8A1538')),
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
+            font=dict(size=12, family='Cairo'),
+            bgcolor='rgba(255,255,255,0.9)',
+            bordercolor='#8A1538',
+            borderwidth=2
+        ),
+        barmode='stack',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family='Cairo'),
+        height=max(450, len(agg_df['subject'].unique()) * 50),
+        margin=dict(l=20, r=200, t=80, b=60)  # ✅ مساحة للتعريف
+    )
+    
+    return fig
+
+def chart_overall_donut(pivot: pd.DataFrame) -> go.Figure:
+    """رسم دائري للتوزيع العام"""
+    if pivot.empty or 'الفئة' not in pivot.columns:
+        return go.Figure()
+    
+    counts = pivot['الفئة'].value_counts().reindex(CATEGORY_ORDER, fill_value=0)
+    
+    fig = go.Figure([
+        go.Pie(
+            labels=counts.index,
+            values=counts.values,
+            hole=0.55,
+            marker=dict(colors=[CATEGORY_COLORS[k] for k in counts.index]),
+            textinfo='label+value',
+            textfont=dict(size=13, family='Cairo'),
+            hovertemplate="%{label}: %{value} طالب<extra></extra>"
+        )
+    ])
+    
+    fig.update_layout(
+        title=dict(
+            text="توزيع عام للفئات",
+            font=dict(size=20, family='Cairo', color='#8A1538'),
+            x=0.5
+        ),
+        showlegend=False,
+        font=dict(family='Cairo'),
+        height=400
+    )
+    
+    return fig
+
+def chart_overall_gauge(pivot: pd.DataFrame) -> go.Figure:
+    """مؤشر قياس متوسط الإنجاز العام"""
+    avg = 0.0
+    
+    if not pivot.empty and 'المتوسط' in pivot.columns:
+        mean_val = pivot['المتوسط'].mean()
+        avg = float(mean_val) if pd.notna(mean_val) else 0.0
+    
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=avg,
+        number={'suffix': "%", 'font': {'family': 'Cairo', 'size': 40}},
+        gauge={
+            'axis': {'range': [0, 100], 'tickfont': {'family': 'Cairo'}},
+            'bar': {'color': '#8A1538'},
+            'steps': [
+                {'range': [0, 60], 'color': '#ffebee'},
+                {'range': [60, 70], 'color': '#fff3e0'},
+                {'range': [70, 80], 'color': '#f1f8e9'},
+                {'range': [80, 90], 'color': '#e8f5e9'},
+                {'range': [90, 100], 'color': '#e0f7fa'}
+            ],
+            'threshold': {
+                'line': {'color': CATEGORY_COLORS['ذهبي 🥈'], 'width': 4},
+                'thickness': 0.75,
+                'value': 80
+            }
+        }
+    ))
+    
+    fig.update_layout(
+        title=dict(
+            text="متوسط الإنجاز العام",
+            font=dict(size=20, family='Cairo', color='#8A1538'),
+            x=0.5
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font=dict(family='Cairo'),
+        height=350
+    )
+    
+    return fig
+
+# ============== دوال PDF ==============
+
+@safe_execute(default_return=b"", error_message="خطأ في إنشاء PDF")
+def make_student_pdf_fpdf(
+    school_name: str,
+    student_name: str,
+    grade: str,
+    section: str,
+    table_df: pd.DataFrame,
+    overall_avg: float,
+    reco_text: str,
+    coordinator_name: str,
+    academic_deputy: str,
+    admin_deputy: str,
+    principal_name: str,
+    font_info: Tuple[str, Optional[str]],
+    logo_path: Optional[str] = None,
+) -> bytes:
+    """إنشاء تقرير PDF للطالب - نسخة محسّنة"""
+    
+    font_name, font_path = font_info
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.add_page()
+    
+    # إضافة الخط
+    if font_path and os.path.exists(font_path):
+        try:
+            pdf.add_font(font_name, "", font_path, uni=True)
+        except Exception as e:
+            logger.warning(f"فشل في إضافة الخط: {e}")
+            font_name = ""
+    
+    def set_font(size=12, color=(0, 0, 0)):
+        if font_name:
+            pdf.set_font(font_name, size=size)
         else:
-            new_columns.append(f"{subj}_{met}")
-    piv.columns = new_columns
-
-    # 4. دمج البيانات الوصفية (اسم الطالب، الصف، الشعبة)
-    meta = (df.sort_values(["uid"])
-              .groupby("uid", as_index=False)
-              .agg(student_name=("student_name","first"),
-                   student_id=("student_id","first"),
-                   classx=("class","first"),
-                   sectionx=("section","first")))
-
-    piv = meta.merge(piv, on="uid", how="left")
-
-    # 5. حساب الإنجاز العام والتصنيف
-    solved_cols = [c for c in piv.columns if str(c).endswith("_solved")]
-    total_cols  = [c for c in piv.columns if str(c).endswith("_total")]
-    piv["Overall_Solved"] = piv[solved_cols].sum(axis=1) if solved_cols else 0
-    piv["Overall_Total"]  = piv[total_cols].sum(axis=1)  if total_cols else 0
+            pdf.set_font("Helvetica", size=size)
+        pdf.set_text_color(*color)
     
-    # حساب نسبة الإنجاز: completed / max(total_assigned_due, 1)
-    piv["Overall_Completion"] = (piv["Overall_Solved"] / piv["Overall_Total"].replace(0, 1) * 100).fillna(0).round(2)
-
-    # *****************************************************************
-    # تعديل دالة التصنيف لتتوافق مع المعايير الجديدة (Platinum >= 95%, Gold 85-94.99%, Silver 70-84.99%, Bronze 50-69.99%, Needs Improvement < 50%)
-    # *****************************************************************
-    def cat(x):
-        if x >= 95:
-            return "🏆 Platinum"
-        elif x >= 85:
-            return "🥇 Gold"
-        elif x >= 70:
-            return "🥈 Silver"
-        elif x >= 50:
-            return "🥉 Bronze"
-        elif x > 0:
-            return "🔧 Needs Improvement"
-        else: # x == 0
-            return "🚫 Not Utilizing System"
-    piv["Category"] = piv["Overall_Completion"].apply(cat)
-    # *****************************************************************
-
-    # 6. دمج بيانات المعلمين (إذا توفرت)
-    if teachers_df is not None:
-        # إنشاء عمود للمطابقة (الصف والشعبة)
-        piv["merge_key"] = piv["classx"] + " " + piv["sectionx"]
-        teachers_df["merge_key"] = teachers_df["الشعبة"]
-        
-        # دمج بيانات المعلمين
-        piv = piv.merge(teachers_df[["merge_key", "اسم المعلمة", "البريد الإلكتروني"]], 
-                        left_on="merge_key", right_on="merge_key", how="left").drop(columns=["merge_key"])
-        
-        # إضافة عمود بريد المعلم لكل مادة (افتراضًا أن المعلم هو نفسه لكل المواد في الشعبة)
-        piv["teacher_email"] = piv["البريد الإلكتروني"].fillna("")
-        piv["teacher_name"] = piv["اسم المعلمة"].fillna("")
-    else:
-        piv["teacher_email"] = ""
-        piv["teacher_name"] = ""
-
-    # 7. التوصيات التشغيلية (الثابتة)
-    piv["Student_Recommendation"] = piv["Category"].apply(get_student_recommendation)
-
-    # 8. إعادة تسمية الأعمدة النهائية
-    out = piv.rename(columns={
-        "student_name":"اسم الطالب", "student_id":"الرقم الشخصي",
-        "classx":"الصف", "sectionx":"الشعبة", # تم تصحيح اسم العمود إلى sectionx
-        "Overall_Total":"إجمالي التقييمات",
-        "Overall_Solved":"المنجز",
-        "Overall_Completion":"نسبة الإنجاز %",
-        "Category":"الفئة",
-        "teacher_name": "اسم المعلمة",
-        "teacher_email": "بريد المعلمة",
-        "Student_Recommendation": "توصية الطالب"
-    })
-
-    # 9. pending لكل مادة + تنظيف أسماء الأعمدة
-    for subj in subjects:
-        t=f"{subj}_total"; s=f"{subj}_solved"
-        if t in out.columns and s in out.columns:
-            out[f"{subj}_pending"] = (out[t]-out[s]).clip(lower=0)
-    out.columns = out.columns.astype(str).str.strip()
-
-    base = ["اسم الطالب","الرقم الشخصي","الصف","الشعبة","اسم المعلمة","بريد المعلمة",
-            "إجمالي التقييمات","المنجز","نسبة الإنجاز %","الفئة", "توصية الطالب"]
-    others = [c for c in out.columns if c not in base and c != "uid"]
-    out = out[base + others]
-    return out, subjects
-
-# --------- دالة إرسال البريد الإلكتروني ---------
-def send_teacher_emails(summary_df: pd.DataFrame, inactive_threshold: float = 50.0):
-    if not st.session_state.get("smtp_configured", False):
-        st.warning("لم يتم إعداد بيانات خادم SMTP. لا يمكن إرسال الإيميلات.")
-        return False
+    # الهيدر
+    pdf.set_fill_color(*QATAR_MAROON)
+    pdf.rect(0, 0, 210, 20, style="F")
     
-    # تحديد الطلاب غير الفاعلين (أقل من نسبة إنجاز معينة)
-    inactive_students = summary_df[summary_df["نسبة الإنجاز %"] < inactive_threshold]
+    # الشعار
+    if logo_path and os.path.exists(logo_path):
+        try:
+            pdf.image(logo_path, x=185, y=2.5, w=20)
+        except Exception as e:
+            logger.warning(f"فشل في إضافة الشعار: {e}")
     
-    if inactive_students.empty:
-        st.info("لا يوجد طلاب غير فاعلين لإرسال تنبيهات بشأنهم.")
-        return True
-
-    # التجميع حسب المعلم والبريد الإلكتروني
-    teacher_groups = inactive_students.groupby(["بريد المعلمة", "اسم المعلمة"])
+    set_font(14, (255, 255, 255))
+    pdf.set_xy(10, 7)
+    pdf.cell(0, 8, rtl("إنجاز - تقرير أداء الطالب"), align="R")
     
-    for (email, teacher_name), group in teacher_groups:
-        if not email or email == "nan":
-            st.warning(f"تجاهل إرسال تنبيهات لـ {teacher_name}: لا يوجد بريد إلكتروني مسجل.")
-            continue
-        
-        # بناء محتوى الإيميل
-        student_list = "\n".join([f"- {row['اسم الطالب']} (نسبة الإنجاز: {row['نسبة الإنجاز %']:.1f}%)" 
-                                  for index, row in group.iterrows()])
-        
-        subject = f"تنبيه: طلاب غير فاعلين في الشعبة {group['الشعبة'].iloc[0]}"
-        body = f"""
-        عزيزتي المعلمة {teacher_name}،
-        
-        تحية طيبة وبعد،
-        
-        نود تنبيهك بوجود مجموعة من الطلاب في شعبتك لم تتجاوز نسبة إنجازهم {inactive_threshold:.1f}% في التقييمات الأخيرة.
-        
-        **قائمة الطلاب غير الفاعلين:**
-        {student_list}
-        
-        **التوصية التشغيلية العامة:**
-        {analyze_teacher_group(group)}
-        
-        الرجاء التواصل مع هؤلاء الطلاب ومتابعتهم لرفع نسبة إنجازهم.
-        
-        شكراً لجهودك،
-        نظام أي إنجاز الآلي
-        """
-        
-        # هنا يتم استدعاء دالة الإرسال الفعلية (يجب أن يتم تنفيذها خارج هذا الكود)
-        st.info(f"تم توليد تنبيه لـ {teacher_name} ({email}) بخصوص {len(group)} طالب غير فاعل.")
-        
-    return True
-
-# --------- توصية على مستوى المعلم (المجموعة) ---------
-@st.cache_data(show_spinner="جاري توليد توصية للمعلم...")
-def analyze_teacher_group(group_df: pd.DataFrame) -> str:
-    # تم تحديث التوصيات لتتوافق مع متطلبات برومد
-    avg_completion = group_df["نسبة الإنجاز %"].mean()
+    # العنوان
+    set_font(18, QATAR_MAROON)
+    pdf.set_y(28)
+    pdf.cell(0, 10, rtl("تقرير أداء الطالب - نظام قطر للتعليم"), ln=1, align="R")
+    pdf.set_draw_color(*QATAR_GOLD)
+    pdf.set_line_width(0.6)
+    pdf.line(30, 38, 200, 38)
     
-    if avg_completion >= 90:
-        return f"أظهر طلاب الصف التزامًا عاليًا بإنجاز التقييمات الأسبوعية. نوصي بالاستمرار على هذا النهج مع {FIXED_REMINDER}."
-    elif avg_completion >= 75:
-        return f"حقق الصف مستوى جيد جدًا في حل التقييمات. نقترح تعزيز هذا الأداء عبر {FIXED_REMINDER}."
-    elif avg_completion >= 60:
-        return f"بلغ الصف نسبة إنجاز متوسطة. نوصي بتكثيف تذكير الطلاب بإنجاز التقييمات في نهاية كل حصة، وتفعيل دور النظام في الصفوف المقلوبة."
-    elif avg_completion >= 40:
-        return f"نسبة الحل ما زالت تحتاج إلى تحسين. نوصي بالتركيز على تذكير الطلاب يوميًا في نهاية كل حصة بأهمية حل التقييمات، مع دمج استراتيجيات التعلم النشط."
-    elif avg_completion > 0:
-        return f"نسبة الإنجاز في التقييمات الأسبوعية ضعيفة على مستوى الصف. نوصي بتكثيف الجهود عبر التذكير المستمر بنهاية الحصص بإنجاز التقييمات، وتبسيط التمارين داخل نظام قطر للتعليم."
-    else:
-        return f"لم ينجز الصف أي تقييم أسبوعي في هذه المادة. نوصي بإطلاق خطة عاجلة تشمل: تذكير الطلاب بنهاية كل حصة، و {PARENT_COMMUNICATION}، مع اعتماد نظام قطر للتعليم كمنصة رئيسية لرقمنة استراتيجية الصفوف المقلوبة."
-
-# --------- تحليل الأنماط على مستوى المادة ---------
-@st.cache_data(show_spinner="جاري تحليل أنماط الإنجاز للمادة...")
-def analyze_subject_patterns(summary_df: pd.DataFrame, subject: str) -> str:
-    # تحديد متوسط نسبة الإنجاز للمادة
-    total_solved = summary_df[f"{subject}_solved"].sum()
-    total_total = summary_df[f"{subject}_total"].sum()
-    avg_completion = (total_solved / total_total * 100) if total_total > 0 else 0
+    # بيانات الطالب
+    set_font(12, (0, 0, 0))
+    pdf.ln(6)
+    pdf.cell(0, 8, rtl(f"اسم المدرسة: {school_name or '—'}"), ln=1, align="R")
+    pdf.cell(0, 8, rtl(f"اسم الطالب: {student_name}"), ln=1, align="R")
+    pdf.cell(0, 8, rtl(f"الصف: {grade or '—'}     الشعبة: {section or '—'}"), ln=1, align="R")
+    pdf.ln(2)
     
-    # تم تحديث التوصيات لتتوافق مع متطلبات برومد
-    if avg_completion >= 90:
-        return f"المادة حققت نسبة إنجاز مرتفعة جدًا. يُوصى بدعم استدامة هذا المستوى عبر توثيق أفضل الممارسات وتعميمها بين الصفوف، مع الحرص على {PARENT_COMMUNICATION} لتعزيز الشراكة التربوية. كما يُوصى بـ {FIXED_REMINDER}"
-    elif avg_completion >= 75:
-        return f"المادة أظهرت نسبة إنجاز جيدة جدًا مع فرصة للارتقاء. يُوصى بزيادة التحفيز والمتابعة، و {PARENT_COMMUNICATION} لدعم انتظام الطلاب، مع التأكيد على {FIXED_REMINDER}"
-    elif avg_completion >= 60:
-        return f"متوسط الإنجاز في المادة يعكس تفاعلًا مقبولًا. يُوصى بتعزيز المتابعة و {PARENT_COMMUNICATION} لرفع مستوى الالتزام، مع الاستمرار في {FIXED_REMINDER}"
-    elif avg_completion >= 40:
-        return f"نسبة الإنجاز متوسطة منخفضة وتحتاج إلى رفع. يُوصى بزيادة المتابعة من القسم و {PARENT_COMMUNICATION} لتحفيز الطلاب على الالتزام، مع التشديد على {FIXED_REMINDER}"
-    elif avg_completion > 0:
-        return f"المادة أظهرت ضعفًا في إنجاز التقييمات الأسبوعية. يُوصى بتدخل مباشر من القسم مع تفعيل {PARENT_COMMUNICATION} بشكل منتظم لتعزيز التزام الطلاب، مع التركيز على {FIXED_REMINDER}"
-    else:
-        return f"لم يتم تسجيل أي إنجاز في التقييمات الأسبوعية لهذه المادة. يُوصى بمتابعة عاجلة من القسم، مع تكثيف {PARENT_COMMUNICATION} لتوضيح أهمية الالتزام بالنظام، والتركيز على {FIXED_REMINDER}"
+    # جدول المواد
+    headers = [
+        rtl("المادة"),
+        rtl("عدد التقييمات الإجمالي"),
+        rtl("عدد التقييمات المنجزة"),
+        rtl("عدد التقييمات المتبقية")
+    ]
+    widths = [70, 45, 45, 40]
+    
+    pdf.set_fill_color(*QATAR_MAROON)
+    set_font(12, (255, 255, 255))
+    pdf.set_y(pdf.get_y() + 4)
+    
+    for w, h in zip(widths, headers):
+        pdf.cell(w, 9, h, border=0, align="C", fill=True)
+    pdf.ln(9)
+    
+    # بيانات الجدول
+    set_font(11, (0, 0, 0))
+    total_total = 0
+    total_solved = 0
+    
+    for _, r in table_df.iterrows():
+        sub = rtl(str(r['المادة']))
+        tot = int(r['إجمالي'])
+        solv = int(r['منجز'])
+        rem = int(max(tot - solv, 0))
+        
+        total_total += tot
+        total_solved += solv
+        
+        pdf.set_fill_color(247, 247, 247)
+        pdf.cell(widths[0], 8, sub, 0, 0, "C", True)
+        pdf.cell(widths[1], 8, str(tot), 0, 0, "C", True)
+        pdf.cell(widths[2], 8, str(solv), 0, 0, "C", True)
+        pdf.cell(widths[3], 8, str(rem), 0, 1, "C", True)
+    
+    # الإحصائيات
+    pdf.ln(3)
+    set_font(12, QATAR_MAROON)
+    pdf.cell(0, 8, rtl("الإحصائيات"), ln=1, align="R")
+    
+    set_font(12, (0, 0, 0))
+    remaining = max(total_total - total_solved, 0)
+    pdf.cell(
+        0, 8,
+        rtl(f"منجز: {total_solved}    متبقي: {remaining}    نسبة حل التقييمات: {overall_avg:.1f}%"),
+        ln=1, align="R"
+    )
+    
+    # التوصية
+    pdf.ln(2)
+    set_font(12, QATAR_MAROON)
+    pdf.cell(0, 8, rtl("توصية منسق المشاريع:"), ln=1, align="R")
+    
+    set_font(11, (0, 0, 0))
+    reco_lines = (reco_text or "—").splitlines() if reco_text else ["—"]
+    for line in reco_lines:
+        pdf.multi_cell(0, 7, rtl(line), align="R")
+    
+    # الروابط
+    pdf.ln(2)
+    set_font(12, QATAR_MAROON)
+    pdf.cell(0, 8, rtl("روابط مهمة:"), ln=1, align="R")
+    
+    set_font(11, (0, 0, 0))
+    pdf.cell(0, 7, rtl("رابط نظام قطر: https://portal.education.qa"), ln=1, align="R")
+    pdf.cell(0, 7, rtl("استعادة كلمة المرور: https://password.education.qa"), ln=1, align="R")
+    pdf.cell(0, 7, rtl("قناة قطر للتعليم: https://edu.tv.qa"), ln=1, align="R")
+    
+    # التوقيعات
+    pdf.ln(4)
+    set_font(12, QATAR_MAROON)
+    pdf.cell(0, 8, rtl("التوقيعات"), ln=1, align="R")
+    
+    set_font(11, (0, 0, 0))
+    pdf.set_draw_color(*QATAR_GOLD)
+    
+    boxes = [
+        ("منسق المشاريع", coordinator_name),
+        ("النائب الأكاديمي", academic_deputy),
+        ("النائب الإداري", admin_deputy),
+        ("مدير المدرسة", principal_name)
+    ]
+    
+    x_left, x_right = 10, 110
+    y0 = pdf.get_y() + 2
+    w, h = 90, 18
+    
+    for i, (title, name) in enumerate(boxes):
+        row = i // 2
+        col = i % 2
+        x = x_right if col == 0 else x_left
+        yb = y0 + row * (h + 6)
+        
+        pdf.rect(x, yb, w, h)
+        set_font(11, (0, 0, 0))
+        pdf.set_xy(x, yb + 3)
+        pdf.cell(w - 4, 6, rtl(f"{title} / {name or '—'}"), align="R")
+        pdf.set_xy(x, yb + 10)
+        pdf.cell(w - 4, 6, rtl("التوقيع: __________________    التاريخ: __________"), align="R")
+    
+    # إخراج PDF
+    try:
+        out = pdf.output(dest="S")
+        if isinstance(out, bytes):
+            return out
+        elif isinstance(out, str):
+            return out.encode("latin-1")
+        else:
+            # محاولة تحويل أي نوع آخر
+            return bytes(out)
+    except Exception as e:
+        logger.error(f"خطأ في إخراج PDF: {e}")
+        raise
 
+# ============== التطبيق الرئيسي ==============
 
-def to_excel_bytes(sheets: Dict[str,pd.DataFrame]) -> bytes:
-    mem = BytesIO()
-    with pd.ExcelWriter(mem, engine="openpyxl") as w:
-        for name, df in sheets.items():
-            df.to_excel(w, sheet_name=name[:31] or "Sheet1", index=False)
-    mem.seek(0); return mem.getvalue()
-
-# ---------- Streamlit App (الواجهة الرئيسية) ----------
 def main():
-    st.title("📊 أي إنجاز - لوحة تحليل إنجاز الطلاب الذكية")
-    st.markdown("أداة تحليلية تعتمد على التحليل الإحصائي والتوصيات الثابتة المخصصة لرفع نسبة الإنجاز الأكاديمي.")
-
-    # 1. إعدادات النظام
-    with st.sidebar.expander("⚙️ إعدادات النظام ومعايير التصنيف"):
-        # تم تحديث القيمة الافتراضية لـ inactive_threshold إلى 50% وفقاً لـ Bronze
-        inactive_threshold = st.slider("نسبة الإنجاز لاعتبار الطالب 'غير فاعل' (%)", 0, 50, 50)
-        
-        # *****************************************************************
-        # تم إلغاء تعديل عتبات التصنيف من قبل المستخدم لتبسيط الواجهة
-        # st.session_state.thresholds = {
-        #     "Platinum": st.number_input("حد Platinum (أكبر من)", 0, 100, 94),
-        #     "Gold": st.number_input("حد Gold (أكبر من)", 0, 100, 84),
-        #     "Silver": st.number_input("حد Silver (أكبر من)", 0, 100, 69),
-        #     "Bronze": st.number_input("حد Bronze (أكبر من)", 0, 100, 49)
-        # }
-        # *****************************************************************
-        
-        # استخدام العتبات الثابتة في الكود (Platinum >= 95, Gold >= 85, Silver >= 70, Bronze >= 50)
-        st.session_state.thresholds = {"Platinum": 95, "Gold": 85, "Silver": 70, "Bronze": 50}
-
-
-    # 2. تحميل ملفات المعلمين (لربط الطالب بالمعلم)
-    teacher_file = st.sidebar.file_uploader("📂 تحميل ملف بيانات المعلمين (لإرسال الإيميلات)", type=["xlsx", "csv", "xls"])
-    if teacher_file:
-        teachers_df = _load_teachers_df(teacher_file)
-        st.session_state.teachers_df = teachers_df
-        if teachers_df is not None:
-            st.sidebar.success(f"تم تحميل {len(teachers_df)} سجل معلم.")
-            with st.sidebar.expander("معاينة بيانات المعلمين"):
-                st.dataframe(teachers_df, use_container_width=True)
-    else:
-        st.session_state.teachers_df = None
-
-    # 3. تحميل ملفات التقييمات
-    uploaded_files = st.sidebar.file_uploader("📂 تحميل ملفات التقييمات (Excel)", type=["xlsx", "xls"], accept_multiple_files=True)
+    """الدالة الرئيسية للتطبيق"""
     
-    if uploaded_files:
-        raw_rows = []
-        for file in uploaded_files:
-            try:
-                # تم تغيير start_row_students إلى 3 (الصف الرابع)
-                rows = process_excel_file(file, file.name, start_row_students=3)
-                raw_rows.extend(rows)
-            except Exception as e:
-                st.error(f"فشل معالجة الملف {file.name}: {e}")
+    # إعداد التطبيق
+    setup_app()
+    
+    # الشريط الجانبي
+    with st.sidebar:
+        st.image("https://i.imgur.com/XLef7tS.png", width=110)
+        st.markdown("---")
         
-        if raw_rows:
-            raw_df = pd.DataFrame(raw_rows)
-            st.session_state.raw_df = raw_df
-            st.sidebar.success(f"تم دمج {len(raw_df)} سجل بنجاح.")
+        st.header("⚙️ الإعدادات")
+        
+        # 1. تحميل الملفات
+        st.subheader("📁 تحميل الملفات")
+        uploaded_files = st.file_uploader(
+            "اختر ملفات Excel",
+            type=["xlsx", "xls"],
+            accept_multiple_files=True,
+            help="يمكنك رفع عدة ملفات في آن واحد"
+        )
+        
+        # معالجة الأوراق
+        selected_sheets = []
+        all_sheets = []
+        sheet_file_map = {}
+        
+        if uploaded_files:
+            for file_idx, file in enumerate(uploaded_files):
+                try:
+                    file.seek(0)  # ✅ إعادة تعيين المؤشر
+                    xls = pd.ExcelFile(file)
+                    for sheet in xls.sheet_names:
+                        label = f"[ملف {file_idx + 1}] {sheet}"
+                        all_sheets.append(label)
+                        sheet_file_map[label] = (file, sheet)
+                except Exception as e:
+                    st.error(f"❌ خطأ في قراءة الملف: {e}")
             
-            # 4. بناء الملخص المحوري
-            with st.spinner("جاري تحليل البيانات وبناء التوصيات..."):
-                summary_df, subjects = build_summary_pivot(
-                    raw_df, 
-                    st.session_state.teachers_df, 
-                    st.session_state.get("thresholds", {"Platinum": 95, "Gold": 85, "Silver": 70, "Bronze": 50})
-                )
-            
-            st.session_state.summary_df = summary_df
-            st.session_state.subjects = subjects
-            
-            st.header("نتائج التحليل والإنجاز العام")
-            st.dataframe(summary_df, use_container_width=True)
-            
-            # 5. الرسوم البيانية (مثال)
-            if not summary_df.empty:
-                col1, col2 = st.columns(2)
-                with col1:
-                    fig = px.histogram(summary_df, x="الفئة", color="الفئة", 
-                                       title="توزيع الطلاب حسب فئة الإنجاز",
-                                       category_orders={"الفئة": ["🏆 Platinum", "🥇 Gold", "🥈 Silver", "🥉 Bronze", "🔧 Needs Improvement", "🚫 Not Utilizing System"]})
-                    st.plotly_chart(fig, use_container_width=True)
+            if all_sheets:
+                st.info(f"📋 وُجدت {len(all_sheets)} ورقة في {len(uploaded_files)} ملف")
                 
-                with col2:
-                    fig2 = px.box(summary_df, y="نسبة الإنجاز %", color="الشعبة",
-                                  title="توزيع نسب الإنجاز حسب الشعبة")
-                    st.plotly_chart(fig2, use_container_width=True)
-
-            # 6. التوصيات على مستوى المادة (الثابتة)
-            st.header("تحليل الأنماط والتوصيات على مستوى المادة")
-            for subj in subjects:
-                with st.expander(f"✨ تحليل مادة: {subj}"):
-                    st.markdown(f"**التوصية التشغيلية للمادة:**")
-                    st.info(analyze_subject_patterns(summary_df, subj))
+                select_all = st.checkbox(
+                    "✔️ اختر الجميع",
+                    value=True,
+                    key="select_all_sheets"
+                )
+                
+                if select_all:
+                    chosen = all_sheets
+                else:
+                    chosen = st.multiselect(
+                        "اختر الأوراق للتحليل",
+                        all_sheets,
+                        default=all_sheets[:1] if all_sheets else []
+                    )
+                
+                selected_sheets = [sheet_file_map[c] for c in chosen]
+        
+        st.session_state.selected_sheets = selected_sheets
+        
+        # 2. فلترة التواريخ
+        st.subheader("⏳ فلترة الأعمدة حسب تاريخ الاستحقاق")
+        enable_date_filter = st.checkbox(
+            "تفعيل فلتر التاريخ",
+            value=False,
+            help="يقرأ التاريخ من H3 لكل عمود. الأعمدة خارج النطاق الزمني يتم تجاهلها بالكامل.",
+            key="enable_date_filter"
+        )
+        
+        if enable_date_filter:
+            default_start = date.today().replace(day=1)
+            default_end = date.today()
             
-            # 7. خيارات التصدير والإيميل
-            st.header("إجراءات إضافية")
-            col_export, col_email = st.columns(2)
+            st.info("ℹ️ سيتم تحليل الأعمدة التي تواريخها (H3) ضمن النطاق فقط")
             
-            with col_export:
-                # تصدير Excel
-                excel_data = to_excel_bytes({"ملخص الإنجاز": summary_df})
-                st.download_button(
-                    label="⬇️ تصدير ملخص الإنجاز (Excel)",
-                    data=excel_data,
-                    file_name="ملخص_إنجاز_الطلاب_المحدث.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            range_val = st.date_input(
+                "اختر المدى",
+                value=(default_start, default_end),
+                format="YYYY-MM-DD",
+                key="due_range"
+            )
+            
+            if isinstance(range_val, (list, tuple)) and len(range_val) >= 2:
+                due_start, due_end = range_val[0], range_val[1]
+            else:
+                due_start, due_end = None, None
+        else:
+            due_start, due_end = None, None
+            st.success(
+                "✅ **المنطق الذكي مفعّل:**\n"
+                "- الخلية `-` أو فارغة = تقييم غير مستحق (لا يُحسب)\n"
+                "- الخلية `M` = تقييم مستحق غير منجز (يُحسب متبقي)\n"
+                "- الخلية بها قيمة = تقييم منجز (يُحسب منجز)"
+            )
+        
+        # 3. شعار المدرسة
+        st.subheader("🖼️ شعار المدرسة (اختياري)")
+        logo_file = st.file_uploader(
+            "ارفع شعار PNG/JPG",
+            type=["png", "jpg", "jpeg"],
+            key="logo_file"
+        )
+        st.session_state.logo_path = prepare_logo_file(logo_file)
+        
+        st.markdown("---")
+        
+        # 4. معلومات المدرسة
+        st.subheader("🏫 معلومات المدرسة")
+        school_name = st.text_input("اسم المدرسة", placeholder="مدرسة قطر النموذجية")
+        
+        # 5. التوقيعات
+        st.subheader("✍️ التوقيعات")
+        coordinator_name = st.text_input("منسق/ة المشاريع")
+        academic_deputy = st.text_input("النائب الأكاديمي")
+        admin_deputy = st.text_input("النائب الإداري")
+        principal_name = st.text_input("مدير/ة المدرسة")
+        
+        st.markdown("---")
+        
+        # زر التشغيل
+        run_analysis = st.button(
+            "▶️ تشغيل التحليل",
+            use_container_width=True,
+            type="primary",
+            disabled=not uploaded_files
+        )
+    
+    # المحتوى الرئيسي
+    if not uploaded_files:
+        st.info("📤 من الشريط الجانبي ارفع ملفات Excel للبدء في التحليل")
+        
+    elif run_analysis:
+        sheets_to_use = st.session_state.selected_sheets
+        
+        if not sheets_to_use:
+            tmp = []
+            for file in uploaded_files:
+                try:
+                    file.seek(0)
+                    xls = pd.ExcelFile(file)
+                    for sheet in xls.sheet_names:
+                        tmp.append((file, sheet))
+                except Exception as e:
+                    st.error(f"❌ خطأ في قراءة الملف: {e}")
+            sheets_to_use = tmp
+        
+        if not sheets_to_use:
+            st.warning("⚠️ لم يتم العثور على أوراق داخل الملفات المرفوعة.")
+        else:
+            # شريط التقدم
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            with st.spinner("⏳ جاري التحليل..."):
+                rows = []
+                total_sheets = len(sheets_to_use)
+                
+                for idx, (file, sheet) in enumerate(sheets_to_use):
+                    # تحديث شريط التقدم
+                    progress = (idx + 1) / total_sheets
+                    progress_bar.progress(progress)
+                    status_text.text(f"📊 تحليل الورقة {idx + 1} من {total_sheets}: {sheet}")
+                    
+                    # إعادة تعيين مؤشر الملف
+                    file.seek(0)
+                    
+                    # التحليل
+                    sheet_results = analyze_excel_file(file, sheet, due_start, due_end)
+                    rows.extend(sheet_results)
+                
+                progress_bar.empty()
+                status_text.empty()
+                
+                if rows:
+                    df = pd.DataFrame(rows)
+                    st.session_state.analysis_results = df
+                    st.session_state.pivot_table = create_pivot_table(df)
+                    
+                    # إحصائيات
+                    subjects_count = df['subject'].nunique() if 'subject' in df.columns else 0
+                    students_count = len(st.session_state.pivot_table)
+                    
+                    st.success(
+                        f"✅ تم تحليل {students_count} طالب عبر {subjects_count} مادة بنجاح!"
+                    )
+                    
+                    # حفظ الإحصائيات
+                    st.session_state.analysis_stats = {
+                        'students': students_count,
+                        'subjects': subjects_count,
+                        'total_assessments': df['total_count'].sum() if 'total_count' in df.columns else 0,
+                        'completed': df['completed_count'].sum() if 'completed_count' in df.columns else 0,
+                    }
+                else:
+                    st.warning(
+                        "⚠️ لم يتم استخراج بيانات من الأوراق المحددة. "
+                        "تأكد من تنسيق الجداول وتواريخ الاستحقاق."
+                    )
+    
+    # عرض النتائج
+    pivot = st.session_state.pivot_table
+    df = st.session_state.analysis_results
+    
+    if pivot is not None and not pivot.empty and df is not None:
+        # ملخص النتائج
+        st.subheader("📈 ملخص النتائج")
+        
+        c1, c2, c3, c4, c5 = st.columns(5)
+        
+        with c1:
+            st.metric("👥 إجمالي الطلاب", len(pivot))
+        
+        with c2:
+            subjects = df['subject'].nunique() if 'subject' in df.columns else 0
+            st.metric("📚 عدد المواد", subjects)
+        
+        with c3:
+            avg = 0.0
+            if 'المتوسط' in pivot.columns:
+                mean_val = pivot['المتوسط'].mean()
+                avg = float(mean_val) if pd.notna(mean_val) else 0.0
+            st.metric("📊 متوسط الإنجاز", f"{avg:.1f}%")
+        
+        with c4:
+            platinum_count = 0
+            if 'الفئة' in pivot.columns:
+                platinum_count = int((pivot['الفئة'] == 'بلاتيني 🥇').sum())
+            st.metric("🥇 فئة بلاتيني", platinum_count)
+        
+        with c5:
+            zero = 0
+            if 'المتوسط' in pivot.columns:
+                zero = int((pivot['المتوسط'] == 0).sum())
+            st.metric("⚠️ بدون إنجاز", zero)
+        
+        st.divider()
+        
+        # الجدول التفصيلي
+        st.subheader("📋 جدول النتائج التفصيلي")
+        
+        # خيارات الفلترة
+        col_filter1, col_filter2 = st.columns(2)
+        
+        with col_filter1:
+            if 'الصف' in pivot.columns:
+                levels = ['الكل'] + sorted(pivot['الصف'].dropna().unique().tolist())
+                selected_level = st.selectbox("فلتر حسب الصف", levels)
+            else:
+                selected_level = 'الكل'
+        
+        with col_filter2:
+            if 'الفئة' in pivot.columns:
+                categories = ['الكل'] + CATEGORY_ORDER
+                selected_category = st.selectbox("فلتر حسب الفئة", categories)
+            else:
+                selected_category = 'الكل'
+        
+        # تطبيق الفلترة
+        filtered_pivot = pivot.copy()
+        
+        if selected_level != 'الكل':
+            filtered_pivot = filtered_pivot[filtered_pivot['الصف'] == selected_level]
+        
+        if selected_category != 'الكل':
+            filtered_pivot = filtered_pivot[filtered_pivot['الفئة'] == selected_category]
+        
+        # عرض الجدول
+        st.dataframe(
+            filtered_pivot,
+            use_container_width=True,
+            height=420
+        )
+        
+        # زر تحميل CSV
+        csv = filtered_pivot.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            "📥 تحميل الجدول (CSV)",
+            csv,
+            f"ingaz_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "text/csv",
+            key='download-csv'
+        )
+        
+        st.divider()
+        
+        # الرسوم البيانية
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        st.markdown('<h2 class="chart-title">🍩 التوزيع العام للفئات</h2>', unsafe_allow_html=True)
+        st.plotly_chart(chart_overall_donut(pivot), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        st.markdown('<h2 class="chart-title">🎯 مؤشر متوسط الإنجاز</h2>', unsafe_allow_html=True)
+        st.plotly_chart(chart_overall_gauge(pivot), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        st.markdown('<h2 class="chart-title">📊 توزيع الفئات حسب المادة الدراسية</h2>', unsafe_allow_html=True)
+        
+        try:
+            normalized = normalize_dataframe(df)
+            
+            mode_choice = st.radio(
+                'نوع العرض',
+                ['النسبة المئوية (%)', 'العدد المطلق'],
+                horizontal=True,
+                key="chart_mode"
+            )
+            
+            mode = 'percent' if mode_choice == 'النسبة المئوية (%)' else 'count'
+            agg_df = aggregate_by_subject(normalized)
+            
+            if not agg_df.empty:
+                st.plotly_chart(
+                    chart_stacked_by_subject(agg_df, mode=mode),
+                    use_container_width=True
+                )
+            else:
+                st.info("لا توجد بيانات كافية لعرض الرسم البياني")
+        
+        except Exception as e:
+            st.error(f"خطأ في الرسم: {e}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # التقارير الفردية
+        st.subheader("📑 التقارير الفردية (PDF)")
+        
+        students = []
+        if 'الطالب' in pivot.columns:
+            students = sorted(pivot['الطالب'].dropna().astype(str).unique().tolist())
+        
+        if students:
+            csel, crec = st.columns([2, 3])
+            
+            with csel:
+                sel = st.selectbox("اختر الطالب", students, index=0)
+                
+                row = pivot[pivot['الطالب'] == sel].head(1)
+                g = str(row['الصف'].iloc[0]) if not row.empty and 'الصف' in row.columns else ''
+                s = str(row['الشعبة'].iloc[0]) if not row.empty and 'الشعبة' in row.columns else ''
+                
+                # ✅ الحصول على فئة الطالب
+                student_category = ''
+                if not row.empty and 'الفئة' in row.columns:
+                    student_category = row['الفئة'].iloc[0]
+            
+            with crec:
+                # ✅ التوصية التلقائية حسب الفئة
+                auto_recommendation = get_recommendation_by_category(student_category, sel)
+                
+                # خيار: استخدام التوصية التلقائية أو كتابة مخصصة
+                use_auto = st.checkbox(
+                    "✨ استخدام التوصية التلقائية حسب الفئة",
+                    value=True,
+                    help="التوصية تُنشأ تلقائياً حسب فئة أداء الطالب"
+                )
+                
+                if use_auto:
+                    st.info(f"📋 **الفئة:** {student_category}")
+                    reco = st.text_area(
+                        "توصية منسق المشاريع (يمكنك التعديل)",
+                        value=auto_recommendation,
+                        height=200,
+                        help="يمكنك تعديل التوصية التلقائية حسب الحاجة"
+                    )
+                else:
+                    reco = st.text_area(
+                        "توصية منسق المشاريع (مخصصة)",
+                        value="",
+                        height=200,
+                        placeholder="اكتب التوصية المخصصة هنا..."
+                    )
+            
+            # بيانات الطالب
+            sdata = pd.DataFrame()
+            if 'student_name' in df.columns:
+                sdata = df[df['student_name'].str.strip().eq(sel.strip())].copy()
+            
+            if not sdata.empty:
+                table = sdata[['subject', 'total_count', 'completed_count']].rename(
+                    columns={
+                        'subject': 'المادة',
+                        'total_count': 'إجمالي',
+                        'completed_count': 'منجز'
+                    }
+                )
+                table['متبقي'] = (table['إجمالي'] - table['منجز']).clip(lower=0).astype(int)
+                
+                avg_stu = 0.0
+                if 'solve_pct' in sdata.columns:
+                    avg_stu = float(sdata['solve_pct'].mean())
+                    if pd.isna(avg_stu):
+                        avg_stu = 0.0
+                
+                st.markdown("### معاينة سريعة")
+                st.dataframe(table, use_container_width=True, height=260)
+                
+                # إنشاء PDF
+                pdf_one = make_student_pdf_fpdf(
+                    school_name=school_name or "",
+                    student_name=sel,
+                    grade=g,
+                    section=s,
+                    table_df=table[['المادة', 'إجمالي', 'منجز', 'متبقي']],
+                    overall_avg=avg_stu,
+                    reco_text=reco,
+                    coordinator_name=coordinator_name or "",
+                    academic_deputy=academic_deputy or "",
+                    admin_deputy=admin_deputy or "",
+                    principal_name=principal_name or "",
+                    font_info=st.session_state.font_info,
+                    logo_path=st.session_state.logo_path
+                )
+                
+                if pdf_one:
+                    st.download_button(
+                        "📥 تحميل تقرير الطالب (PDF)",
+                        pdf_one,
+                        file_name=f"student_report_{sel}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+            
+            st.markdown("---")
+            
+            # تصدير جميع التقارير
+            st.subheader("📦 تصدير جميع التقارير (ZIP)")
+            
+            col_zip1, col_zip2 = st.columns(2)
+            
+            with col_zip1:
+                use_auto_all = st.checkbox(
+                    "✨ توصيات تلقائية لكل طالب",
+                    value=True,
+                    help="كل طالب يحصل على توصية مخصصة حسب فئته"
                 )
             
-            with col_email:
-                # إرسال الإيميلات
-                if st.button("📧 إرسال تنبيهات الطلاب غير الفاعلين للمعلمين"):
-                    send_teacher_emails(summary_df, inactive_threshold)
-                    st.success("تم الانتهاء من عملية توليد التنبيهات.")
-        else:
-            st.warning("لم يتم العثور على بيانات صالحة للمعالجة.")
-    else:
-        st.info("الرجاء تحميل ملفات التقييمات للبدء بالتحليل.")
+            with col_zip2:
+                if not use_auto_all:
+                    same_reco = st.checkbox("استخدم نفس التوصية لكل الطلاب", value=True)
+                else:
+                    same_reco = False
+            
+            if st.button("إنشاء ملف ZIP لكل التقارير", type="primary"):
+                with st.spinner("جاري إنشاء حزمة التقارير..."):
+                    try:
+                        buf = io.BytesIO()
+                        
+                        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                            for stu in students:
+                                r = pivot[pivot['الطالب'] == stu].head(1)
+                                g = str(r['الصف'].iloc[0]) if not r.empty and 'الصف' in r.columns else ''
+                                s = str(r['الشعبة'].iloc[0]) if not r.empty and 'الشعبة' in r.columns else ''
+                                
+                                # ✅ الحصول على فئة الطالب للتوصية
+                                student_cat = ''
+                                if not r.empty and 'الفئة' in r.columns:
+                                    student_cat = r['الفئة'].iloc[0]
+                                
+                                sd = pd.DataFrame()
+                                if 'student_name' in df.columns:
+                                    sd = df[df['student_name'].str.strip().eq(stu.strip())].copy()
+                                
+                                if not sd.empty:
+                                    t = sd[['subject', 'total_count', 'completed_count']].rename(
+                                        columns={
+                                            'subject': 'المادة',
+                                            'total_count': 'إجمالي',
+                                            'completed_count': 'منجز'
+                                        }
+                                    )
+                                    t['متبقي'] = (t['إجمالي'] - t['منجز']).clip(lower=0).astype(int)
+                                    
+                                    av = 0.0
+                                    if 'solve_pct' in sd.columns:
+                                        av = float(sd['solve_pct'].mean())
+                                        if pd.isna(av):
+                                            av = 0.0
+                                    
+                                    # ✅ اختيار التوصية المناسبة
+                                    if use_auto_all:
+                                        rtext = get_recommendation_by_category(student_cat, stu)
+                                    elif same_reco:
+                                        rtext = reco
+                                    else:
+                                        rtext = ""
+                                    
+                                    pdfb = make_student_pdf_fpdf(
+                                        school_name=school_name or "",
+                                        student_name=stu,
+                                        grade=g,
+                                        section=s,
+                                        table_df=t[['المادة', 'إجمالي', 'منجز', 'متبقي']],
+                                        overall_avg=av,
+                                        reco_text=rtext,
+                                        coordinator_name=coordinator_name or "",
+                                        academic_deputy=academic_deputy or "",
+                                        admin_deputy=admin_deputy or "",
+                                        principal_name=principal_name or "",
+                                        font_info=st.session_state.font_info,
+                                        logo_path=st.session_state.logo_path
+                                    )
+                                    
+                                    if pdfb:
+                                        safe = re.sub(r"[^\w\-]+", "_", str(stu))
+                                        z.writestr(f"{safe}.pdf", pdfb)
+                        
+                        buf.seek(0)
+                        
+                        st.download_button(
+                            "⬇️ تحميل الحزمة (ZIP)",
+                            buf.getvalue(),
+                            file_name=f"student_reports_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                            mime="application/zip",
+                            use_container_width=True
+                        )
+                        
+                        st.success(f"✅ تم إنشاء {len(students)} تقرير بنجاح!")
+                    
+                    except Exception as e:
+                        st.error(f"❌ خطأ في إنشاء الحزمة: {e}")
+    
+    # الفوتر
+    st.markdown(f"""
+    <div class="footer">
+    <div class="line"></div>
+    <div class="school">مدرسة عثمان بن عفان النموذجية للبنين</div>
+    <div class="rights">© {datetime.now().year} جميع الحقوق محفوظة</div>
+    <div class="contact">للتواصل: <a href="mailto:S.mahgoub0101@education.qa">S.mahgoub0101@education.qa</a></div>
+    <div class="credit">تطوير وتصميم: قسم التحول الرقمي | النسخة المحسّنة 2.0</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ============== تشغيل التطبيق ==============
 
 if __name__ == "__main__":
     main()
