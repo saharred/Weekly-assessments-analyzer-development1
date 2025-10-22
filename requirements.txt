@@ -1,9 +1,9 @@
-# requirements.txt
-streamlit
-pandas
-plotly
-openpyxl
-reportlab
-openai
-
-# Added a comment to force redeployment and ensure all dependencies are installed\n
+streamlit>=1.37
+pandas>=2.2
+numpy>=1.26
+plotly>=5.22
+openpyxl>=3.1
+xlsxwriter>=3.2
+reportlab>=4.2
+python-dateutil>=2.9
+pytz>=2024.1
