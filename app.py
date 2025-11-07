@@ -333,6 +333,49 @@ if uploaded_file:
 
         # --- Main Content ---
         
+        # --- Key Metrics Display ---
+        total_students = combined_df.shape[0]
+        overall_avg_achievement = summary_df["Raw_Avg_Achievement"].mean() if not summary_df.empty else 0
+        
+        # Calculate Total Assessments and Completed Assessments based on the 'Overall' column logic
+        # This is a simplification, as the exact number of completed/total assessments is not directly available
+        # without complex parsing of the assessment columns (which the user asked to avoid).
+        # We will use the total number of students and the overall average achievement.
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                label="إجمالي الطلاب",
+                value=f"{total_students}",
+                delta="طالب"
+            )
+            
+        with col2:
+            st.metric(
+                label="متوسط الإنجاز الكلي",
+                value=f"{overall_avg_achievement:.2f}%",
+                delta="نسبة الحل"
+            )
+            
+        # The following metrics are placeholders or based on simplified assumptions
+        # to match the visual layout of the original image, as the exact calculation
+        # is complex and was avoided per user request (relying on 'Overall' column).
+        
+        with col3:
+            st.metric(
+                label="إجمالي التقييمات",
+                value="غير متوفر",
+                delta="تقييم مستحق"
+            )
+            
+        with col4:
+            st.metric(
+                label="التقييمات المنجزة",
+                value="غير متوفر",
+                delta="% من الإجمالي"
+            )
+            
         # 1. Data Summary Table
         st.header(ARABIC_TEXT["data_summary"])
         # Display Grade and Section correctly
