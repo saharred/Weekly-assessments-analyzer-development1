@@ -282,7 +282,32 @@ def to_excel(df):
 st.title(ARABIC_TEXT["title"])
 st.markdown(f"### {ARABIC_TEXT['subtitle']}")
 
+# --- Add Teacher Report Text ---
+ARABIC_TEXT["teacher_report_title"] = "تقرير المعلمين"
+ARABIC_TEXT["upload_teacher_file"] = "(اختياري) قم بتحميل ملف بيانات المعلمات"
+ARABIC_TEXT["select_teacher"] = "اختر المعلم لعرض التقرير"
+ARABIC_TEXT["teacher_name"] = "اسم المعلم"
+ARABIC_TEXT["overall_teacher_achievement"] = "متوسط الإنجاز الإجمالي للمعلم"
+
+
 uploaded_file = st.file_uploader(ARABIC_TEXT["upload_file"], type=["xlsx", "xls"])
+teacher_mapping_file = st.file_uploader(ARABIC_TEXT["upload_teacher_file"], type=["xlsx", "xls"])
+
+@st.cache_data
+def load_teacher_mapping(file):
+    try:
+        df = pd.read_excel(file)
+        # Standardize column names for merging
+        df.rename(columns={
+            'المادة الدراسية': ARABIC_TEXT["subject"],
+            'الصف': ARABIC_TEXT["grade"],
+            'الشعبة': ARABIC_TEXT["section"],
+            'اسم المعلم': ARABIC_TEXT["teacher_name"]
+        }, inplace=True)
+        return df
+    except Exception as e:
+        st.error(f"حدث خطأ في تحميل ملف بيانات المعلمات: {e}")
+        return None
 
 if uploaded_file:
     combined_df, summary_df, all_due_dates = process_excel_file(uploaded_file)
@@ -480,6 +505,50 @@ if uploaded_file:
                     st.code(email, language='markdown')
         else:
             st.success("لا يوجد طلاب غير نشطين (نسبة إنجازهم أقل من 1%) في البيانات المحملة.")
+
+        # 7. Teacher Report (New Feature)
+        if teacher_mapping_file and not section_achievement_df.empty:
+            teacher_mapping_df = load_teacher_mapping(teacher_mapping_file)
+            if teacher_mapping_df is not None:
+                st.header(ARABIC_TEXT["teacher_report_title"])
+
+                # Merge achievement data with teacher data
+                # Convert relevant columns to string for a safe merge
+                section_achievement_df[ARABIC_TEXT["grade"]] = section_achievement_df[ARABIC_TEXT["grade"]].astype(str)
+                section_achievement_df[ARABIC_TEXT["section"]] = section_achievement_df[ARABIC_TEXT["section"]].astype(str)
+                teacher_mapping_df[ARABIC_TEXT["grade"]] = teacher_mapping_df[ARABIC_TEXT["grade"]].astype(str)
+                teacher_mapping_df[ARABIC_TEXT["section"]] = teacher_mapping_df[ARABIC_TEXT["section"]].astype(str)
+
+                teacher_report_df = pd.merge(
+                    section_achievement_df,
+                    teacher_mapping_df[[ARABIC_TEXT["teacher_name"], ARABIC_TEXT["grade"], ARABIC_TEXT["section"], ARABIC_TEXT["subject"]]],
+                    on=[ARABIC_TEXT["grade"], ARABIC_TEXT["section"], ARABIC_TEXT["subject"]],
+                    how="left"
+                )
+                teacher_report_df.dropna(subset=[ARABIC_TEXT["teacher_name"]], inplace=True)
+
+                if not teacher_report_df.empty:
+                    teacher_list = teacher_report_df[ARABIC_TEXT["teacher_name"]].unique()
+                    selected_teacher = st.selectbox(ARABIC_TEXT["select_teacher"], options=teacher_list)
+
+                    if selected_teacher:
+                        teacher_data = teacher_report_df[teacher_report_df[ARABIC_TEXT["teacher_name"]] == selected_teacher]
+                        
+                        # Calculate overall achievement for the teacher
+                        overall_teacher_achievement = teacher_data[ARABIC_TEXT["achievement_rate"]].mean()
+                        
+                        st.metric(
+                            label=ARABIC_TEXT["overall_teacher_achievement"],
+                            value=f"{overall_teacher_achievement:.2f}%"
+                        )
+                        
+                        # Display the detailed report for the teacher
+                        display_cols = [ARABIC_TEXT["subject"], ARABIC_TEXT["grade"], ARABIC_TEXT["section"], ARABIC_TEXT["achievement_rate"]]
+                        teacher_data_display = teacher_data[display_cols].copy()
+                        teacher_data_display[ARABIC_TEXT["achievement_rate"]] = teacher_data_display[ARABIC_TEXT["achievement_rate"]].apply(lambda x: f"{x:.2f}%")
+                        st.dataframe(teacher_data_display, hide_index=True, use_container_width=True)
+                else:
+                    st.warning("لم يتم العثور على بيانات معلمين متطابقة مع بيانات الإنجاز. يرجى التأكد من تطابق أسماء المواد والصفوف والشعب في كلا الملفين.")
 
     else:
         st.error("لم يتم العثور على بيانات صالحة في الملف المحمل.")
