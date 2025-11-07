@@ -528,6 +528,29 @@ if uploaded_file:
                 teacher_report_df.dropna(subset=[ARABIC_TEXT["teacher_name"]], inplace=True)
 
                 if not teacher_report_df.empty:
+                    # Calculate overall achievement for all teachers
+                    teacher_comparison_df = teacher_report_df.groupby(ARABIC_TEXT["teacher_name"])[ARABIC_TEXT["achievement_rate"]].mean().reset_index()
+                    teacher_comparison_df.rename(columns={ARABIC_TEXT["achievement_rate"]: "متوسط الإنجاز"}, inplace=True)
+                    
+                    # --- Teacher Comparison Chart ---
+                    st.subheader("مقارنة متوسط إنجاز المعلمات")
+                    
+                    fig_teacher_comp = px.bar(
+                        teacher_comparison_df,
+                        x=ARABIC_TEXT["teacher_name"],
+                        y="متوسط الإنجاز",
+                        title="مقارنة متوسط إنجاز المعلمات",
+                        labels={
+                            ARABIC_TEXT["teacher_name"]: ARABIC_TEXT["teacher_name"],
+                            "متوسط الإنجاز": "متوسط الإنجاز (%)"
+                        },
+                        color="متوسط الإنجاز",
+                        color_continuous_scale=px.colors.sequential.Viridis
+                    )
+                    fig_teacher_comp.update_layout(xaxis={'categoryorder':'total descending'})
+                    st.plotly_chart(fig_teacher_comp, use_container_width=True)
+                    
+                    # --- Individual Teacher Report ---
                     teacher_list = teacher_report_df[ARABIC_TEXT["teacher_name"]].unique()
                     selected_teacher = st.selectbox(ARABIC_TEXT["select_teacher"], options=teacher_list)
 
